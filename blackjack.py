@@ -1,0 +1,165 @@
+import random
+# define card values
+card_values = {
+    'Ace': 11,
+    '2': 2,
+    '3': 3,
+    '4': 4,
+    '5': 5,
+    '6': 6,
+    '7': 7,
+    '8': 8,
+    '9': 9,
+    '10': 10,
+    'Jack': 10,
+    'Queen': 10,
+    'King': 10
+}
+
+# define hand_value function
+def hand_value(cards):
+    value = sum(card_values[rank] for suit, rank, color in cards)
+    # count the number of aces in the hand
+    num_aces = sum(1 for suit, rank, color in cards if rank == 'Ace')
+    # handle aces
+    while value > 21 and num_aces > 0:
+        value -= 10
+        num_aces -= 1
+    return value
+#create a list for dealer and player's cards
+dealer_cards=[]
+player_cards=[]
+#define a function for welcome and introduce the rule of the game
+def welcome():
+    print("Welcome to play blackjack game!!")
+    
+#define a add up function
+
+def simplemath_add(x, y):
+    return x+y
+
+class MoneyChange:
+    def __init__(self):
+        self.total_money()
+
+    def total_money(self):
+        print("How much money do you want to bring to the table?")
+        self.total = float(input("Please enter the amount of money you want to bring to the table:"))
+        print(f"Your total amount is: {self.total:.2f}$")
+
+    def money_bet(self):
+        self.bet = float(input("How much money do you want to bet for this play?"))
+        print(f"Thank you for your bet! Your bet is: {self.bet:.2f}$! GOOD LUCKY!")
+
+    def win(self):
+        self.total += self.bet
+        print(f"You won! Now your total is: {self.total:.2f}$")
+
+    def lose(self):
+        self.total -= self.bet
+        print(f"You lost! Now your total is: {self.total:.2f}$")
+
+
+#calculation method for dealer's cards
+
+#initilize the deck cards
+def initialize_deck():
+    suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
+    ranks = ['Ace', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King']
+    colors = ['Red', 'Black']
+    deck = [(suit, rank, color) for suit in suits for rank in ranks for color in colors]*2
+    random.shuffle(deck)
+    return deck
+
+def dealer_card(deck):
+    dealer_cards=[]
+    while len(dealer_cards)!=2:
+        dealer_cards.append(deck.pop())
+        if len(dealer_cards)==2:
+            num1=dealer_cards[0]
+            num2=dealer_cards[1]
+            print(f'The Dealer has the card showing:{num1}')
+            while num1==1 or num1==11:
+                print("Dealer is showing an A, do you want to buy insurance or not?")
+                opt=input("if you want to buy insurance,please press Y if not press N")
+                if opt=='Y' or opt=='y':
+                    print("Dealer's under card is {dealer_cards[1]}.")
+                else:
+                    break
+if sum(dealer_cards)==21:
+    print("Dealer has 21 and wins!You lost!")
+    an.lose()
+elif sum(dealer_cards)>21:
+    print("Dealer Busted!!You win!!!")
+    an.win()
+#define a calculation method for player's cards
+def player_card(deck):  
+    while len(player_cards)!=2:
+        player_cards.append(deck.pop())
+        if len(player_cards)==2:
+              num1=player_cards[0]
+              num2=player_cards[1]
+              result=simplemath_add(num1,num2)
+              print(f'Your first card is: {num1}, and your second card is :{num2}. The totla is: {result}')
+              if 'Ace' in (num1[1], num2[1]):
+                 print('An Ace can be counted as either 1 or 11 points.')
+
+#this get choice function is to get the player's choice to let the player know to hit or stand        
+def get_choice(deck):
+    while hand_value(player_cards) < 21:
+        player_choice = input("Do you want to HIT/STAND(H/S)")
+        if player_choice == 'H' or player_choice == 'h':
+            player_cards.append(deck.pop())
+            print(f'Your got a new card, your card sets are: {player_cards[:]}')
+            print(f'You already have {hand_value(player_cards)}. Do you want to Hit/Stand(H/S)')
+        else:
+            print("You choose to stay!")
+            while hand_value(dealer_cards) < 17:
+                dealer_cards.append(deck.pop())
+                print(f'Dealer now has the cards: {dealer_cards[:]}')
+                print(f'Total is: {hand_value(dealer_cards)}')
+            else:
+                print(f"Dealer has {dealer_cards[:]}, the total dealer has is: {hand_value(dealer_cards)}")
+                if hand_value(dealer_cards) > 21:
+                    print("Dealer busted! You won!!")
+                    an.win()
+                elif hand_value(dealer_cards) == 21:
+                    print("Dealer has 21. You lost")
+                    an.lose()
+                break
+    if hand_value(player_cards) == 21:
+        print("You got 21 already! You won!!")
+        an.win()
+    elif hand_value(player_cards) > 21:
+        print("You busted!! You lost!!")
+        an.lose()
+    elif hand_value(dealer_cards) < 21:
+        print(f"Dealer has total number of: {hand_value(dealer_cards)}")
+        if hand_value(dealer_cards) > hand_value(player_cards):
+            print(f'Dealer has {hand_value(dealer_cards)}. You have {hand_value(player_cards)}! You lost!!')
+            an.lose()
+        elif hand_value(dealer_cards) < hand_value(player_cards):
+            print(f'Dealer has {hand_value(dealer_cards)}. You have {hand_value(player_cards)}. You win!')
+            an.win()
+
+#calling class function as 'an'   
+an=MoneyChange()
+       
+       
+#main function     
+if __name__ == "__main__":
+    welcome()
+while True:
+    an.total_money()
+    an.money_bet()
+    deck = initialize_deck()    
+    dealer_card(deck)
+    player_card(deck)
+    get_choice(deck)
+
+    option=input("Do you want to continue this game or not?(Y/N)")
+    if option=='Y' or option=='y':
+        
+        continue
+    else:
+        exit()
