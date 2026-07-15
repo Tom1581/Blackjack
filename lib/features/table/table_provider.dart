@@ -36,11 +36,20 @@ extension ShoeModeProps on ShoeMode {
 
 final shoeModeProvider = StateProvider<ShoeMode>((ref) => ShoeMode.sixDeck);
 
+/// How many main betting spots (hands) the player plays at once. 1 is the
+/// classic single-hand game; 2–3 deal that many simultaneous hands. Chosen in
+/// the lobby before sitting down.
+final spotCountProvider = StateProvider<int>((ref) => 1);
+
 /// Which betting circle the next chip click should land in: the main wager
 /// or the dealer-bust side bet.
 enum BetTarget { main, side }
 
 final betTargetProvider = StateProvider<BetTarget>((ref) => BetTarget.main);
+
+/// Which main betting spot the next chip lands in (0-based). Only meaningful
+/// while [betTargetProvider] is [BetTarget.main].
+final activeSpotProvider = StateProvider<int>((ref) => 0);
 
 /// Backwards-compatible deck count derived from the shoe mode.
 final deckCountProvider = Provider<int>((ref) {
@@ -63,11 +72,41 @@ class TableNotifier extends Notifier<GameState> {
   @override
   GameState build() {
     _engine = ref.read(_engineProvider);
+    final spots = ref.read(spotCountProvider);
     ref.listen(shoeModeProvider, (_, __) {
       _engine = ref.read(_engineProvider);
-      state = GameState(bankroll: state.bankroll);
+      state = _freshBetting(state.bankroll, ref.read(spotCountProvider));
+      _resetSelectors();
     });
-    return GameState(bankroll: _loadBankroll());
+    // Changing the number of hands in the lobby re-lays the empty spots — but
+    // only while betting, so a live round is never disturbed.
+    ref.listen(spotCountProvider, (_, next) {
+      if (state.phase == GamePhase.betting) {
+        state = _freshBetting(state.bankroll, next);
+        _resetSelectors();
+      }
+    });
+    // Note: initial selectors already default to spot 0 / main. We intentionally
+    // do NOT mutate them here — a provider must not modify other providers
+    // during its own build.
+    return _freshBetting(_loadBankroll(), spots);
+  }
+
+  /// A clean betting-phase state with [count] empty spots. Pure — it does not
+  /// touch other providers, so it is safe to call from [build].
+  GameState _freshBetting(int bankroll, int count) {
+    final n = count.clamp(1, GameEngine.maxSpots);
+    return GameState(
+      bankroll: bankroll,
+      spotBets: List<int>.filled(n, 0),
+    );
+  }
+
+  /// Point the chip selectors back at spot 1 / main. Only call from event
+  /// handlers (listeners, actions) — never from [build].
+  void _resetSelectors() {
+    ref.read(activeSpotProvider.notifier).state = 0;
+    ref.read(betTargetProvider.notifier).state = BetTarget.main;
   }
 
   int _loadBankroll() => 1000; // default; actual persistence is async below
@@ -86,7 +125,8 @@ class TableNotifier extends Notifier<GameState> {
   void addChip(int amount) {
     if (state.phase != GamePhase.betting) return;
     if (state.currentBet + state.sideBet + amount > state.bankroll) return;
-    state = _engine.placeBet(state, amount);
+    final spot = ref.read(activeSpotProvider).clamp(0, state.spotCount - 1);
+    state = _engine.placeBet(state, amount, spot);
   }
 
   /// Add to the dealer-bust side bet (max $50). Silently ignored if the
@@ -130,8 +170,8 @@ class TableNotifier extends Notifier<GameState> {
     if (state.phase != GamePhase.playerTurn) return;
     if (!state.activeHand.canDouble) return;
     // Doubling stakes one extra base bet for *this* hand only — affordability
-    // is per-hand, not the cumulative total across all split hands.
-    if (state.bankroll < state.originalBet) return;
+    // is per-hand, not the cumulative total across all hands.
+    if (state.bankroll < state.activeHand.bet) return;
     state = _engine.doubleDown(state);
     _onAction();
   }
@@ -140,8 +180,8 @@ class TableNotifier extends Notifier<GameState> {
     if (state.phase != GamePhase.playerTurn) return;
     if (!state.activeHand.isPair) return;
     // Splitting also stakes exactly one more base bet (so re-splits remain
-    // affordable as long as one more original-bet's worth is left).
-    if (state.bankroll < state.originalBet) return;
+    // affordable as long as one more of this hand's bet is left).
+    if (state.bankroll < state.activeHand.bet) return;
     state = _engine.split(state);
     _onAction();
   }
@@ -195,6 +235,11 @@ class TableNotifier extends Notifier<GameState> {
 
   void nextHand() {
     state = _engine.newHand(state);
+    // Re-lay the spots to match the currently selected hand count (it may have
+    // changed since the round started) and reset the spot/target selectors.
+    final count = ref.read(spotCountProvider).clamp(1, GameEngine.maxSpots);
+    state = state.copyWith(spotBets: List<int>.filled(count, 0));
+    _resetSelectors();
     _saveBankroll();
   }
 

@@ -15,12 +15,17 @@ class BetPanel extends ConsumerWidget {
     final state = ref.watch(tableProvider);
     final notifier = ref.read(tableProvider.notifier);
     final target = ref.watch(betTargetProvider);
-    final mainBet = state.currentBet;
+    final spotCount = state.spotCount;
+    final activeSpot = ref.watch(activeSpotProvider).clamp(0, spotCount - 1);
+    // Total staked across every main spot — drives affordability, CLEAR and
+    // DEAL. The MAIN tab, in multi-hand mode, shows just the active spot's bet.
+    final totalMain = state.currentBet;
+    final activeSpotBet = state.spotBets[activeSpot];
     final sideBet = state.sideBet;
     final bankroll = state.bankroll;
 
     bool canAffordChip(int value) {
-      final totalAfter = mainBet + sideBet + value;
+      final totalAfter = totalMain + sideBet + value;
       if (totalAfter > bankroll) return false;
       if (target == BetTarget.side) {
         if (sideBet + value > GameEngine.sideBetMax) return false;
@@ -50,7 +55,8 @@ class BetPanel extends ConsumerWidget {
           // MAIN / SIDE target tabs
           _BetTargetTabs(
             target: target,
-            mainBet: mainBet,
+            mainLabel: spotCount > 1 ? 'HAND ${activeSpot + 1}' : 'MAIN',
+            mainBet: spotCount > 1 ? activeSpotBet : totalMain,
             sideBet: sideBet,
             onSelect: (t) {
               HapticFeedback.selectionClick();
@@ -73,7 +79,9 @@ class BetPanel extends ConsumerWidget {
                     ),
                   )
                 : Text(
-                    'TAP CHIPS TO BET',
+                    spotCount > 1
+                        ? 'TAP A HAND CIRCLE, THEN CHIPS  ·  TOTAL \$$totalMain'
+                        : 'TAP CHIPS TO BET',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.35),
                       fontSize: 9,
@@ -115,7 +123,7 @@ class BetPanel extends ConsumerWidget {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: (mainBet > 0 || sideBet > 0)
+                  onPressed: (totalMain > 0 || sideBet > 0)
                       ? () {
                           HapticFeedback.lightImpact();
                           notifier.clearBet();
@@ -138,7 +146,7 @@ class BetPanel extends ConsumerWidget {
               Expanded(
                 flex: 2,
                 child: ElevatedButton(
-                  onPressed: mainBet > 0
+                  onPressed: totalMain > 0
                       ? () {
                           HapticFeedback.mediumImpact();
                           notifier.deal();
@@ -175,12 +183,14 @@ class BetPanel extends ConsumerWidget {
 /// will land in (main wager vs. dealer-bust side bet).
 class _BetTargetTabs extends StatelessWidget {
   final BetTarget target;
+  final String mainLabel;
   final int mainBet;
   final int sideBet;
   final ValueChanged<BetTarget> onSelect;
 
   const _BetTargetTabs({
     required this.target,
+    required this.mainLabel,
     required this.mainBet,
     required this.sideBet,
     required this.onSelect,
@@ -192,7 +202,7 @@ class _BetTargetTabs extends StatelessWidget {
       children: [
         Expanded(
           child: _tab(
-            label: 'MAIN',
+            label: mainLabel,
             amount: mainBet,
             isActive: target == BetTarget.main,
             onTap: () => onSelect(BetTarget.main),

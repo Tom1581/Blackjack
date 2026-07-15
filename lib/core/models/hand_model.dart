@@ -4,13 +4,58 @@ class HandModel {
   final List<CardModel> cards;
   final bool isDoubled;
 
-  const HandModel({this.cards = const [], this.isDoubled = false});
+  /// The base wager staked on this hand/betting-spot. In a multi-spot round
+  /// each hand carries its own bet, so payouts are computed per hand rather
+  /// than by dividing a single shared total. Split hands inherit the source
+  /// hand's [bet].
+  final int bet;
 
-  HandModel addCard(CardModel card) =>
-      HandModel(cards: [...cards, card], isDoubled: isDoubled);
+  /// True when this hand was produced by splitting a pair. A split hand can
+  /// never be a "natural" blackjack (a two-card 21 from a split pays 1:1, not
+  /// 3:2), so payout resolution needs to know a hand's origin.
+  final bool fromSplit;
 
-  HandModel markDoubled() =>
-      HandModel(cards: cards, isDoubled: true);
+  const HandModel({
+    this.cards = const [],
+    this.isDoubled = false,
+    this.bet = 0,
+    this.fromSplit = false,
+  });
+
+  HandModel copyWith({
+    List<CardModel>? cards,
+    bool? isDoubled,
+    int? bet,
+    bool? fromSplit,
+  }) =>
+      HandModel(
+        cards: cards ?? this.cards,
+        isDoubled: isDoubled ?? this.isDoubled,
+        bet: bet ?? this.bet,
+        fromSplit: fromSplit ?? this.fromSplit,
+      );
+
+  // Wire format for online play.
+  Map<String, dynamic> toJson() => {
+        'c': cards.map((c) => c.toJson()).toList(),
+        'd': isDoubled,
+        'b': bet,
+        'fs': fromSplit,
+      };
+
+  factory HandModel.fromJson(Map<String, dynamic> json) => HandModel(
+        cards: [
+          for (final c in (json['c'] as List? ?? const []))
+            CardModel.fromJson(Map<String, dynamic>.from(c as Map)),
+        ],
+        isDoubled: json['d'] as bool? ?? false,
+        bet: json['b'] as int? ?? 0,
+        fromSplit: json['fs'] as bool? ?? false,
+      );
+
+  HandModel addCard(CardModel card) => copyWith(cards: [...cards, card]);
+
+  HandModel markDoubled() => copyWith(isDoubled: true);
 
   // Flexible Ace calculation — same logic as hand_value() in blackjack.py
   int get value {
@@ -57,8 +102,7 @@ class HandModel {
   // House rule: double allowed on any two-card hand (DOA — Double On Any).
   bool get canDouble => cards.length == 2;
 
-  HandModel revealAll() => HandModel(
+  HandModel revealAll() => copyWith(
         cards: cards.map((c) => c.copyWith(faceUp: true)).toList(),
-        isDoubled: isDoubled,
       );
 }

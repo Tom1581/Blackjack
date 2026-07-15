@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/ads/ad_service.dart';
 import '../../../core/models/game_state.dart';
 import '../../../theme/app_theme.dart';
 import '../table_provider.dart';
@@ -44,6 +45,7 @@ class _ResultOverlayState extends ConsumerState<ResultOverlay>
       if (!mounted) return;
       await _ctrl.reverse();
       if (!mounted) return;
+      ref.read(adServiceProvider).showInterstitialAfterHand();
       ref.read(tableProvider.notifier).nextHand();
     });
   }
@@ -58,9 +60,13 @@ class _ResultOverlayState extends ConsumerState<ResultOverlay>
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(tableProvider);
-    final result =
-        state.handResults.isNotEmpty ? state.handResults[0] : null;
-    final (label, color, isWin) = _resultDisplay(result);
+    final multi = state.playerHands.length > 1;
+    // With a single hand the specific outcome (blackjack/push/…) is meaningful;
+    // with several hands there is no single verdict, so summarise by net chips.
+    final result = state.handResults.isNotEmpty ? state.handResults[0] : null;
+    final (label, color, isWin) =
+        multi ? _netDisplay(state.roundNet) : _resultDisplay(result);
+    final icon = multi ? _netIcon(state.roundNet) : _resultIcon(result);
 
     return IgnorePointer(
       child: Padding(
@@ -72,8 +78,8 @@ class _ResultOverlayState extends ConsumerState<ResultOverlay>
             child: FadeTransition(
               opacity: _fade,
               child: Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 22, vertical: 12),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
                 decoration: BoxDecoration(
                   color: AppColors.wood,
                   borderRadius: BorderRadius.circular(28),
@@ -98,7 +104,7 @@ class _ResultOverlayState extends ConsumerState<ResultOverlay>
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      _resultIcon(result),
+                      icon,
                       color: color,
                       size: 20,
                     ),
@@ -153,6 +159,19 @@ class _ResultOverlayState extends ConsumerState<ResultOverlay>
     }
   }
 
+  IconData _netIcon(int net) {
+    if (net > 0) return Icons.trending_up;
+    if (net < 0) return Icons.trending_down;
+    return Icons.horizontal_rule;
+  }
+
+  /// Aggregate verdict for a multi-hand round, based on net chips.
+  (String, Color, bool) _netDisplay(int net) {
+    if (net > 0) return ('YOU WIN', AppColors.favorable, true);
+    if (net < 0) return ('YOU LOSE', AppColors.unfavorable, false);
+    return ('PUSH', AppColors.neutral, false);
+  }
+
   (String, Color, bool) _resultDisplay(GameResult? result) {
     switch (result) {
       case GameResult.blackjack:
@@ -173,21 +192,11 @@ class _ResultOverlayState extends ConsumerState<ResultOverlay>
   }
 
   String _netText(GameState state) {
-    final result = state.handResults.isNotEmpty ? state.handResults[0] : null;
-    final bet = state.currentBet;
-    switch (result) {
-      case GameResult.blackjack:
-        return '+\$${(bet * 1.5).toInt()}';
-      case GameResult.win:
-      case GameResult.dealerBust:
-        return '+\$$bet';
-      case GameResult.push:
-        return '\$0';
-      case GameResult.loss:
-      case GameResult.bust:
-        return '−\$$bet';
-      default:
-        return '';
-    }
+    // Authoritative net for the whole round (all hands + side + insurance),
+    // computed by the engine at settlement.
+    final net = state.roundNet;
+    if (net > 0) return '+\$$net';
+    if (net < 0) return '−\$${net.abs()}';
+    return '\$0';
   }
 }

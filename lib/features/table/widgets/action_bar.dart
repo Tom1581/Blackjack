@@ -13,8 +13,8 @@ class ActionBar extends ConsumerWidget {
     final n = ref.read(tableProvider.notifier);
     final hand = state.activeHand;
     // Both split and double stake exactly one more base bet for the active
-    // hand — independent of how many other split hands already exist.
-    final canAffordExtraBaseBet = state.bankroll >= state.originalBet;
+    // hand — its own wager, independent of how many other hands are in play.
+    final canAffordExtraBaseBet = state.bankroll >= hand.bet;
 
     return Container(
       decoration: BoxDecoration(

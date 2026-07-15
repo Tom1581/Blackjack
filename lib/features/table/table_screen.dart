@@ -207,55 +207,83 @@ class _FeltBanner extends StatelessWidget {
   }
 }
 
-/// On-felt betting circles — a big one for the main bet, a smaller one for
-/// the dealer-bust side bet. Always visible so the player can see *where*
-/// their chips will land. Tap a circle to switch the active bet target.
+/// On-felt betting circles — one per main betting spot plus a smaller circle
+/// for the dealer-bust side bet. Always visible so the player can see *where*
+/// their chips will land. Tap a circle to make it the active bet target.
 class _TableChips extends ConsumerWidget {
   const _TableChips();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(tableProvider);
+    final spotBets = ref.watch(tableProvider.select((s) => s.spotBets));
+    final sideBet = ref.watch(tableProvider.select((s) => s.sideBet));
+    final phase = ref.watch(tableProvider.select((s) => s.phase));
+    final target = ref.watch(betTargetProvider);
+    final activeSpot = ref.watch(activeSpotProvider);
+
+    final count = spotBets.length;
+    final canTap = phase == GamePhase.betting;
+    // Shrink the circles as more spots share the felt width.
+    final mainSize = count >= 3
+        ? 78.0
+        : count == 2
+            ? 88.0
+            : 96.0;
+    final mainChip = count >= 3 ? 17.0 : 20.0;
+
+    List<Widget> circles = [
+      for (var i = 0; i < count; i++)
+        _BettingCircle(
+          amount: spotBets[i],
+          size: mainSize,
+          emptyLabel: 'BET',
+          bottomLabel: count == 1 ? 'MAIN' : 'HAND ${i + 1}',
+          borderColor: AppColors.gold,
+          chipSize: mainChip,
+          maxVisibleChips: 5,
+          isActive: target == BetTarget.main && activeSpot == i,
+          canTap: canTap,
+          onTap: () {
+            HapticFeedback.selectionClick();
+            ref.read(activeSpotProvider.notifier).state = i;
+            ref.read(betTargetProvider.notifier).state = BetTarget.main;
+          },
+        ),
+    ];
 
     return Padding(
       padding: const EdgeInsets.only(top: 4, bottom: 2),
       child: SizedBox(
-        height: 130,
+        height: 132,
         child: Center(
-          child: SizedBox(
-            width: 200,
-            height: 130,
-            child: Stack(
-              clipBehavior: Clip.none,
+          child: FittedBox(
+            fit: BoxFit.scaleDown,
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
               children: [
-                // Main bet circle — bigger, lower-left
-                Positioned(
-                  left: 6,
-                  bottom: 0,
+                for (final c in circles) ...[
+                  c,
+                  const SizedBox(width: 10),
+                ],
+                // Side bet circle — smaller "bonus" spot on the right.
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
                   child: _BettingCircle(
-                    amount: state.currentBet,
-                    size: 100,
-                    emptyLabel: 'BET',
-                    bottomLabel: 'MAIN',
-                    borderColor: AppColors.gold,
-                    chipSize: 22,
-                    maxVisibleChips: 5,
-                    target: BetTarget.main,
-                  ),
-                ),
-                // Side bet circle — smaller, upper-right (the "bonus" spot)
-                Positioned(
-                  right: 6,
-                  top: 0,
-                  child: _BettingCircle(
-                    amount: state.sideBet,
-                    size: 60,
+                    amount: sideBet,
+                    size: 58,
                     emptyLabel: 'BUST',
                     bottomLabel: 'SIDE',
                     borderColor: AppColors.unfavorable,
                     chipSize: 16,
                     maxVisibleChips: 3,
-                    target: BetTarget.side,
+                    isActive: target == BetTarget.side,
+                    canTap: canTap,
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      ref.read(betTargetProvider.notifier).state =
+                          BetTarget.side;
+                    },
                   ),
                 ),
               ],
@@ -271,9 +299,9 @@ class _TableChips extends ConsumerWidget {
 /// (ringed in [borderColor]), with either an empty-state label or a stack
 /// of chips inside, and a small caps label below.
 ///
-/// During the betting phase the circle is tappable — tapping it makes its
-/// [target] the active spot for the next chip click.
-class _BettingCircle extends ConsumerWidget {
+/// During the betting phase the circle is tappable — tapping it makes it the
+/// active spot for the next chip click.
+class _BettingCircle extends StatelessWidget {
   final int amount;
   final double size;
   final String emptyLabel;
@@ -281,7 +309,9 @@ class _BettingCircle extends ConsumerWidget {
   final Color borderColor;
   final double chipSize;
   final int maxVisibleChips;
-  final BetTarget target;
+  final bool isActive;
+  final bool canTap;
+  final VoidCallback onTap;
 
   const _BettingCircle({
     required this.amount,
@@ -291,23 +321,17 @@ class _BettingCircle extends ConsumerWidget {
     required this.borderColor,
     required this.chipSize,
     required this.maxVisibleChips,
-    required this.target,
+    required this.isActive,
+    required this.canTap,
+    required this.onTap,
   });
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final activeTarget = ref.watch(betTargetProvider);
-    final phase = ref.watch(tableProvider.select((s) => s.phase));
-    final isActive = activeTarget == target;
-    final canTap = phase == GamePhase.betting;
+  Widget build(BuildContext context) {
+    final highlight = canTap && isActive;
 
     return GestureDetector(
-      onTap: canTap
-          ? () {
-              HapticFeedback.selectionClick();
-              ref.read(betTargetProvider.notifier).state = target;
-            }
-          : null,
+      onTap: canTap ? onTap : null,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -319,9 +343,8 @@ class _BettingCircle extends ConsumerWidget {
               shape: BoxShape.circle,
               color: Colors.black.withValues(alpha: 0.22),
               border: Border.all(
-                color: borderColor.withValues(
-                    alpha: canTap && isActive ? 0.95 : 0.5),
-                width: canTap && isActive ? 2.5 : 2,
+                color: borderColor.withValues(alpha: highlight ? 0.95 : 0.5),
+                width: highlight ? 2.5 : 2,
               ),
               boxShadow: [
                 BoxShadow(
@@ -329,7 +352,7 @@ class _BettingCircle extends ConsumerWidget {
                   blurRadius: 6,
                   offset: const Offset(0, 3),
                 ),
-                if (canTap && isActive)
+                if (highlight)
                   BoxShadow(
                     color: borderColor.withValues(alpha: 0.45),
                     blurRadius: 16,

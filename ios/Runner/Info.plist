@@ -2,6 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+	<!-- Google Mobile Ads SDK requires this at launch or the app crashes, even
+	     though iOS currently serves no ads (see AdMobIds in ad_service.dart).
+	     This is Google's official SAMPLE iOS app ID — replace it with your real
+	     AdMob iOS app ID before shipping ads on iOS. -->
+	<key>GADApplicationIdentifier</key>
+	<string>ca-app-pub-3940256099942544~1458002511</string>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

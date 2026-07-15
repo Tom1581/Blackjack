@@ -12,10 +12,17 @@ class GameState {
   final int activeHandIndex;
   final HandModel dealerHand;
   final int bankroll;
+
+  // Total main wager across every betting spot for the current hand. During
+  // the betting phase this equals the sum of [spotBets]; after the deal it is
+  // the total staked on all dealt hands.
   final int currentBet;
-  // The base wager set at deal-time — the per-hand stake before any
-  // splits or doubles. Used for accurate per-hand payouts.
-  final int originalBet;
+
+  // Per-spot pending main bet during the betting phase. The list length is the
+  // number of betting spots the player has enabled (1–3). A spot with a bet of
+  // 0 is skipped when the cards are dealt.
+  final List<int> spotBets;
+
   final int insuranceBet;
   final int sideBet;
   final int runningCount;
@@ -24,6 +31,12 @@ class GameState {
   final int cardsRemaining;
   final List<GameResult?> handResults;
   final InsuranceState insuranceState;
+
+  // Net chips won (+) or lost (−) across the whole round, computed at
+  // settlement. Aggregates every hand plus the side and insurance bets so the
+  // result banner can show one honest number even with multiple hands.
+  final int roundNet;
+
   final String? message;
 
   const GameState({
@@ -33,7 +46,7 @@ class GameState {
     this.dealerHand = const HandModel(),
     this.bankroll = 1000,
     this.currentBet = 0,
-    this.originalBet = 0,
+    this.spotBets = const [0],
     this.insuranceBet = 0,
     this.sideBet = 0,
     this.runningCount = 0,
@@ -42,12 +55,16 @@ class GameState {
     this.cardsRemaining = 312,
     this.handResults = const [null],
     this.insuranceState = InsuranceState.notOffered,
+    this.roundNet = 0,
     this.message,
   });
 
   HandModel get activeHand => playerHands[activeHandIndex];
 
   bool get allHandsPlayed => activeHandIndex >= playerHands.length;
+
+  /// Number of betting spots currently enabled.
+  int get spotCount => spotBets.length;
 
   GameState copyWith({
     GamePhase? phase,
@@ -56,7 +73,7 @@ class GameState {
     HandModel? dealerHand,
     int? bankroll,
     int? currentBet,
-    int? originalBet,
+    List<int>? spotBets,
     int? insuranceBet,
     int? sideBet,
     int? runningCount,
@@ -65,6 +82,7 @@ class GameState {
     int? cardsRemaining,
     List<GameResult?>? handResults,
     InsuranceState? insuranceState,
+    int? roundNet,
     String? message,
   }) {
     return GameState(
@@ -74,7 +92,7 @@ class GameState {
       dealerHand: dealerHand ?? this.dealerHand,
       bankroll: bankroll ?? this.bankroll,
       currentBet: currentBet ?? this.currentBet,
-      originalBet: originalBet ?? this.originalBet,
+      spotBets: spotBets ?? this.spotBets,
       insuranceBet: insuranceBet ?? this.insuranceBet,
       sideBet: sideBet ?? this.sideBet,
       runningCount: runningCount ?? this.runningCount,
@@ -83,6 +101,7 @@ class GameState {
       cardsRemaining: cardsRemaining ?? this.cardsRemaining,
       handResults: handResults ?? this.handResults,
       insuranceState: insuranceState ?? this.insuranceState,
+      roundNet: roundNet ?? this.roundNet,
       message: message ?? this.message,
     );
   }

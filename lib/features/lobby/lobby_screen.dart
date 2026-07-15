@@ -3,12 +3,14 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/ads/ad_service.dart';
 import '../../core/models/card_model.dart';
 import '../../theme/app_theme.dart';
 import '../leaderboard/leaderboard_providers.dart';
 import '../leaderboard/leaderboard_screen.dart';
 import '../leaderboard/leaderboard_service.dart';
 import '../leaderboard/widgets/crown_icon.dart';
+import '../online/online_entry_screen.dart';
 import '../stats/stats_screen.dart';
 import '../table/table_provider.dart';
 import '../table/table_screen.dart';
@@ -40,7 +42,8 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
       duration: const Duration(milliseconds: 1100),
       vsync: this,
     );
-    _entranceFade = CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOut);
+    _entranceFade =
+        CurvedAnimation(parent: _entranceCtrl, curve: Curves.easeOut);
     _titleSlide = Tween<Offset>(
       begin: const Offset(0, -0.25),
       end: Offset.zero,
@@ -71,6 +74,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
     )..repeat(reverse: true);
 
     ref.read(tableProvider.notifier).init();
+    unawaited(ref.read(adServiceProvider).initialize());
   }
 
   @override
@@ -142,6 +146,17 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
                         HapticFeedback.mediumImpact();
                         Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => const TableScreen(),
+                        ));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _SecondaryButton(
+                      icon: Icons.groups,
+                      label: 'PLAY  ONLINE  WITH  FRIENDS',
+                      onTap: () {
+                        HapticFeedback.mediumImpact();
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const OnlineEntryScreen(),
                         ));
                       },
                     ),
@@ -489,8 +504,7 @@ class _BankrollCard extends StatelessWidget {
                 ),
               ],
             ),
-            child: const Icon(Icons.savings,
-                color: AppColors.wood, size: 20),
+            child: const Icon(Icons.savings, color: AppColors.wood, size: 20),
           ),
           const SizedBox(width: 14),
           Expanded(
@@ -556,7 +570,11 @@ class _GlowingPlayButton extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: enabled
-                    ? const [Color(0xFFFFE680), Color(0xFFD4AF37), Color(0xFFB8860B)]
+                    ? const [
+                        Color(0xFFFFE680),
+                        Color(0xFFD4AF37),
+                        Color(0xFFB8860B)
+                      ]
                     : [
                         AppColors.goldDim.withValues(alpha: 0.6),
                         AppColors.goldDim.withValues(alpha: 0.4),
@@ -650,8 +668,8 @@ class _SecondaryButton extends StatelessWidget {
         style: OutlinedButton.styleFrom(
           backgroundColor: Colors.black.withValues(alpha: 0.25),
           side: BorderSide(color: AppColors.gold.withValues(alpha: 0.35)),
-          shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(14)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
     );
@@ -728,8 +746,84 @@ class _SettingsPanel extends ConsumerWidget {
               _ShoeSelector(current: shoeMode),
             ],
           ),
+          const SizedBox(height: 10),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              const Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(right: 8),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Hands per round',
+                        style:
+                            TextStyle(color: Colors.white70, fontSize: 14),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Play up to 3 hands at once',
+                        style: TextStyle(color: Colors.white38, fontSize: 11),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              const _HandsSelector(),
+            ],
+          ),
         ],
       ),
+    );
+  }
+}
+
+/// Segmented 1 / 2 / 3 selector for how many hands the player deals each round.
+class _HandsSelector extends ConsumerWidget {
+  const _HandsSelector();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final current = ref.watch(spotCountProvider);
+
+    Widget btn(int count) {
+      final selected = count == current;
+      return GestureDetector(
+        onTap: () {
+          HapticFeedback.lightImpact();
+          ref.read(spotCountProvider.notifier).state = count;
+        },
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          margin: const EdgeInsets.only(left: 6),
+          width: 38,
+          padding: const EdgeInsets.symmetric(vertical: 6),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+            color: selected ? AppColors.gold : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: selected
+                  ? AppColors.gold
+                  : AppColors.gold.withValues(alpha: 0.25),
+            ),
+          ),
+          child: Text(
+            '$count',
+            style: TextStyle(
+              color: selected ? AppColors.wood : Colors.white54,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [btn(1), btn(2), btn(3)],
     );
   }
 }
@@ -852,7 +946,8 @@ class _HiLoExplainer extends StatelessWidget {
           RichText(
             text: TextSpan(children: [
               TextSpan(text: 'TC ', style: term),
-              TextSpan(text: '(True Count) = RC ÷ decks remaining. ', style: body),
+              TextSpan(
+                  text: '(True Count) = RC ÷ decks remaining. ', style: body),
               TextSpan(
                 text:
                     'It normalizes the count for shoe size, so a 4-deck shoe and a 6-deck shoe are comparable.',
@@ -872,8 +967,7 @@ class _HiLoExplainer extends StatelessWidget {
             ),
             child: Row(
               children: [
-                Icon(Icons.trending_up,
-                    color: AppColors.favorable, size: 16),
+                Icon(Icons.trending_up, color: AppColors.favorable, size: 16),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -1033,8 +1127,7 @@ class _WeeklyTop3Card extends ConsumerWidget {
                     height: 18,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      valueColor:
-                          AlwaysStoppedAnimation(AppColors.gold),
+                      valueColor: AlwaysStoppedAnimation(AppColors.gold),
                     ),
                   ),
                 ),
@@ -1051,8 +1144,7 @@ class _WeeklyTop3Card extends ConsumerWidget {
                   return const SizedBox.shrink();
                 }
                 final top3 = entries.take(3).toList();
-                final userIndex =
-                    entries.indexWhere((e) => e.isCurrentUser);
+                final userIndex = entries.indexWhere((e) => e.isCurrentUser);
                 final userRank = userIndex + 1;
                 final userInTop3 = userIndex < 3;
 

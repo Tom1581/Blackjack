@@ -4,7 +4,8 @@ import '../models/hand_model.dart';
 import 'deck_manager.dart';
 import 'hi_lo_counter.dart';
 
-/// Core game logic — direct port of BlackjackGame from blackjack.py.
+/// Core game logic — direct port of BlackjackGame from blackjack.py, extended
+/// to support multiple simultaneous betting spots (hands) in one round.
 /// Stateless: each method takes a GameState and returns a new GameState.
 class GameEngine {
   final DeckManager _deck;
@@ -20,14 +21,22 @@ class GameEngine {
 
   int get numDecks => _deck.numDecks;
 
+  /// Maximum number of main betting spots a player may play at once.
+  static const maxSpots = 3;
+
   // ─── Betting ──────────────────────────────────────────────────────────────
 
   /// Maximum allowed dealer-bust side bet.
   static const sideBetMax = 50;
 
-  GameState placeBet(GameState state, int amount) {
-    assert(amount > 0 && amount <= state.bankroll);
+  /// Add [amount] chips to the main bet on [spotIndex].
+  GameState placeBet(GameState state, int amount, [int spotIndex = 0]) {
+    assert(amount > 0);
+    if (spotIndex < 0 || spotIndex >= state.spotBets.length) return state;
+    final spots = [...state.spotBets];
+    spots[spotIndex] += amount;
     return state.copyWith(
+      spotBets: spots,
       currentBet: state.currentBet + amount,
     );
   }
@@ -41,41 +50,66 @@ class GameEngine {
     return state.copyWith(sideBet: next);
   }
 
-  GameState clearBet(GameState state) =>
-      state.copyWith(currentBet: 0, sideBet: 0);
+  GameState clearBet(GameState state) => state.copyWith(
+        currentBet: 0,
+        sideBet: 0,
+        spotBets: List<int>.filled(state.spotBets.length, 0),
+      );
 
   // ─── Deal ────────────────────────────────────────────────────────────────
 
   GameState dealInitial(GameState state) {
-    // Deal: player, dealer, player, dealer (second dealer card face-down)
-    final p1 = _drawAndCount();
+    // One hand per funded spot. Empty spots (bet 0) are skipped.
+    final funded = <int>[];
+    for (var i = 0; i < state.spotBets.length; i++) {
+      if (state.spotBets[i] > 0) funded.add(i);
+    }
+    // Defensive: nothing wagered — leave the state untouched.
+    if (funded.isEmpty) return state;
+
+    // Deal like a real table: one card to each spot, dealer up-card, a second
+    // card to each spot, then the dealer's face-down hole card (not counted).
+    final firstCards = [for (var _ in funded) _drawAndCount()];
     final d1 = _drawAndCount();
-    final p2 = _drawAndCount();
+    final secondCards = [for (var _ in funded) _drawAndCount()];
     final d2 = _deck.draw(faceUp: false); // hole card — not counted yet
 
-    final playerHand = HandModel(cards: [p1, p2]);
+    final playerHands = <HandModel>[
+      for (var k = 0; k < funded.length; k++)
+        HandModel(
+          cards: [firstCards[k], secondCards[k]],
+          bet: state.spotBets[funded[k]],
+        ),
+    ];
     final dealerHand = HandModel(cards: [d1, d2]);
 
     final insuranceState = d1.rank == Rank.ace
         ? InsuranceState.offered
         : InsuranceState.notOffered;
 
+    // Where does play start? Skip any hand that is already a natural blackjack
+    // (nothing to decide). If the dealer has blackjack, or every player hand is
+    // a natural, hand straight off to the dealer sequence.
+    final firstIdx = _firstActionable(playerHands, 0);
+    final GamePhase phase;
+    if (insuranceState == InsuranceState.offered) {
+      // Insurance is resolved first via the UI prompt; play continues after.
+      phase = GamePhase.playerTurn;
+    } else if (dealerHand.isBlackjack || firstIdx >= playerHands.length) {
+      phase = GamePhase.dealerTurn;
+    } else {
+      phase = GamePhase.playerTurn;
+    }
+
     return _applyCounters(state.copyWith(
-      phase: insuranceState == InsuranceState.offered
-          ? GamePhase.playerTurn // insurance prompt handled in UI
-          : _checkBlackjack(playerHand, dealerHand)
-              ? GamePhase.dealerTurn // hand off to animated dealer sequence
-              : GamePhase.playerTurn,
-      playerHands: [playerHand],
-      activeHandIndex: 0,
+      phase: phase,
+      playerHands: playerHands,
+      activeHandIndex: firstIdx,
       dealerHand: dealerHand,
       bankroll: state.bankroll - state.currentBet - state.sideBet,
-      // Lock in the per-hand stake — splits and doubles will reference this
-      // instead of dividing currentBet by hand count, which only works when
-      // every hand carries the same wager.
-      originalBet: state.currentBet,
-      handResults: [null],
+      handResults: List<GameResult?>.filled(playerHands.length, null),
       insuranceState: insuranceState,
+      roundNet: 0,
       message: null,
     ));
   }
@@ -83,25 +117,33 @@ class GameEngine {
   // ─── Insurance ───────────────────────────────────────────────────────────
 
   GameState handleInsurance(GameState state, bool take) {
-    // Insurance: side bet up to half the original bet that the dealer has
-    // a natural blackjack. Pays 2:1 if dealer does; lost otherwise.
+    // Insurance: side bet up to half the total main bet that the dealer has a
+    // natural blackjack. Pays 2:1 if the dealer does; lost otherwise.
     var cost = take ? state.currentBet ~/ 2 : 0;
-    // Defensive: if somehow asked to take insurance the player can't
-    // afford, silently decline. UI normally prevents this.
+    // Defensive: if somehow asked to take insurance the player can't afford,
+    // silently decline. UI normally prevents this.
     if (cost > state.bankroll) cost = 0;
     final actuallyTook = cost > 0;
-    var next = state.copyWith(
+    final next = state.copyWith(
       insuranceState:
           actuallyTook ? InsuranceState.taken : InsuranceState.declined,
       insuranceBet: cost,
       bankroll: state.bankroll - cost,
     );
-    if (_checkBlackjack(state.activeHand, state.dealerHand)) {
-      // Hand off to animated dealer sequence — caller will reveal the
-      // hole card and call resolveAll().
-      return next.copyWith(phase: GamePhase.dealerTurn);
+
+    // Dealer blackjack ends the round immediately; otherwise resume play at the
+    // first hand that still needs a decision.
+    final firstIdx = _firstActionable(next.playerHands, 0);
+    if (next.dealerHand.isBlackjack || firstIdx >= next.playerHands.length) {
+      return next.copyWith(
+        phase: GamePhase.dealerTurn,
+        activeHandIndex: firstIdx,
+      );
     }
-    return next.copyWith(phase: GamePhase.playerTurn);
+    return next.copyWith(
+      phase: GamePhase.playerTurn,
+      activeHandIndex: firstIdx,
+    );
   }
 
   // ─── Player actions ──────────────────────────────────────────────────────
@@ -117,18 +159,16 @@ class GameEngine {
     return _applyCounters(state.copyWith(playerHands: hands));
   }
 
-  GameState stand(GameState state) =>
-      _advanceOrDealer(state);
+  GameState stand(GameState state) => _advanceOrDealer(state);
 
   GameState doubleDown(GameState state) {
     assert(state.activeHand.canDouble);
     final card = _drawAndCount();
     final hand = state.activeHand.addCard(card).markDoubled();
     final hands = _replaceActive(state.playerHands, state.activeHandIndex, hand);
-    // Doubling stakes one extra base bet for *this* hand only — independent
-    // of how many other hands exist. Using state.currentBet (the running
-    // total across all hands) would over-charge after a split.
-    final extra = state.originalBet;
+    // Doubling stakes one extra base bet for *this* hand only — its own [bet],
+    // independent of how many other hands exist.
+    final extra = state.activeHand.bet;
     return _advanceOrDealer(_applyCounters(state.copyWith(
       playerHands: hands,
       bankroll: state.bankroll - extra,
@@ -138,42 +178,46 @@ class GameEngine {
 
   GameState split(GameState state) {
     assert(state.activeHand.isPair);
-    final c1 = state.activeHand.cards[0];
-    final c2 = state.activeHand.cards[1];
+    final src = state.activeHand;
+    final c1 = src.cards[0];
+    final c2 = src.cards[1];
     final newCard1 = _drawAndCount();
     final newCard2 = _drawAndCount();
-    final hand1 = HandModel(cards: [c1, newCard1]);
-    final hand2 = HandModel(cards: [c2, newCard2]);
+    // Each split hand carries the same base bet as the source and is flagged as
+    // split-derived so it can never pay the 3:2 blackjack bonus.
+    final hand1 =
+        HandModel(cards: [c1, newCard1], bet: src.bet, fromSplit: true);
+    final hand2 =
+        HandModel(cards: [c2, newCard2], bet: src.bet, fromSplit: true);
     final allHands = [
       ...state.playerHands.sublist(0, state.activeHandIndex),
       hand1,
       hand2,
       ...state.playerHands.sublist(state.activeHandIndex + 1),
     ];
-    final results = List<GameResult?>.filled(allHands.length, null);
 
-    // Splitting always wagers exactly one more base bet. The previous
-    // implementation doubled state.currentBet, which works for the first
-    // split but compounds wrongly on a re-split (3 hands wants 3× the base,
-    // not 4×).
-    final extra = state.originalBet;
+    // Splitting always wagers exactly one more base bet.
+    final extra = src.bet;
     final next = _applyCounters(state.copyWith(
       playerHands: allHands,
-      handResults: results,
+      handResults: List<GameResult?>.filled(allHands.length, null),
       bankroll: state.bankroll - extra,
       currentBet: state.currentBet + extra,
     ));
 
-    // Split aces: each receives exactly one card and the player cannot hit,
-    // double, or re-split. Both hands stand and the dealer plays.
-    if (c1.rank == Rank.ace) {
-      return next.copyWith(
-        activeHandIndex: allHands.length,
-        phase: GamePhase.dealerTurn,
-      );
-    }
-
-    return next;
+    // Split aces receive exactly one card each and stand automatically — resume
+    // at the next spot (past both new hands). Other splits keep playing the
+    // first of the two new hands (unless it is an auto-stand 21).
+    final searchFrom = c1.rank == Rank.ace
+        ? state.activeHandIndex + 2
+        : state.activeHandIndex;
+    final nextIdx = _firstActionable(allHands, searchFrom);
+    return next.copyWith(
+      activeHandIndex: nextIdx,
+      phase: nextIdx >= allHands.length
+          ? GamePhase.dealerTurn
+          : GamePhase.playerTurn,
+    );
   }
 
   // ─── Dealer turn (staged so the UI can pace the animation) ──────────────
@@ -215,11 +259,12 @@ class GameEngine {
       activeHandIndex: 0,
       dealerHand: const HandModel(),
       currentBet: 0,
-      originalBet: 0,
+      spotBets: List<int>.filled(state.spotBets.length, 0),
       insuranceBet: 0,
       sideBet: 0,
       handResults: [null],
       insuranceState: InsuranceState.notOffered,
+      roundNet: 0,
       message: _deck.needsReshuffle ? 'Shoe reshuffled' : null,
     );
   }
@@ -258,17 +303,25 @@ class GameEngine {
         cardsRemaining: _deck.remaining,
       );
 
+  /// Index of the first hand at or after [from] that still needs a player
+  /// decision. Natural blackjacks (and split two-card 21s) auto-stand and are
+  /// skipped. Returns `hands.length` when no hand needs action.
+  int _firstActionable(List<HandModel> hands, int from) {
+    var i = from < 0 ? 0 : from;
+    while (i < hands.length && hands[i].isBlackjack) {
+      i++;
+    }
+    return i;
+  }
+
   GameState _advanceOrDealer(GameState state) {
-    final next = state.activeHandIndex + 1;
-    if (next < state.playerHands.length) {
-      return _applyCounters(state.copyWith(activeHandIndex: next));
+    final nextIdx = _firstActionable(state.playerHands, state.activeHandIndex + 1);
+    if (nextIdx < state.playerHands.length) {
+      return _applyCounters(state.copyWith(activeHandIndex: nextIdx));
     }
     // All player hands done — hand off to the animated dealer sequence.
     return state.copyWith(phase: GamePhase.dealerTurn);
   }
-
-  bool _checkBlackjack(HandModel player, HandModel dealer) =>
-      player.isBlackjack || dealer.isBlackjack;
 
   /// Final settlement. Assumes the dealer hand is already revealed and any
   /// dealer hits have been drawn (the table provider does this step-by-step
@@ -277,40 +330,42 @@ class GameEngine {
     final dealer = state.dealerHand;
     final results = <GameResult?>[];
     var bankroll = state.bankroll;
+    var returned = 0; // everything paid back into the bankroll this settlement
 
-    // Insurance settles before the main hand. Pays 2:1 (returns 3× the
-    // insurance stake total) if the dealer has a natural blackjack;
-    // otherwise the stake is forfeit (already deducted at takeInsurance).
+    // Insurance settles before the main hands. Pays 2:1 (returns 3× the stake)
+    // if the dealer has a natural blackjack; otherwise forfeit.
     if (state.insuranceBet > 0 && dealer.isBlackjack) {
-      bankroll += state.insuranceBet * 3;
+      returned += state.insuranceBet * 3;
     }
 
     // Dealer-bust side bet ("Buster Blackjack"). Pays a sliding multiplier
     // based on how many cards the dealer needed to bust. Lost otherwise.
     if (state.sideBet > 0 && dealer.isBust) {
       final mult = busterPayoutMultiplier(dealer.cards.length);
-      bankroll += state.sideBet + state.sideBet * mult; // stake back + profit
+      returned += state.sideBet + state.sideBet * mult; // stake back + profit
     }
-
-    // Once the player has split, no hand can count as a "natural" blackjack
-    // — only the original 2-card initial deal pays 3:2. Split-21 (e.g. split
-    // aces dealt a ten) is just a regular 21 and pays 1:1.
-    final fromSplit = state.playerHands.length > 1;
 
     for (final hand in state.playerHands) {
-      // Per-hand bet = base wager, doubled if the player doubled this hand.
-      // Computing it from `currentBet / N` would average the bets across
-      // hands, which is wrong as soon as one split hand is doubled.
-      final handBet = hand.isDoubled ? state.originalBet * 2 : state.originalBet;
-      final result = _resolveHand(hand, dealer, fromSplit: fromSplit);
+      // Per-hand bet = that hand's own base wager, doubled if it was doubled.
+      final handBet = hand.isDoubled ? hand.bet * 2 : hand.bet;
+      final result = _resolveHand(hand, dealer, fromSplit: hand.fromSplit);
       results.add(result);
-      bankroll += _payout(result, handBet, state);
+      returned += _payout(result, handBet);
     }
+
+    bankroll += returned;
+
+    // Net for the round = everything returned minus everything staked. The
+    // stakes (main + side + insurance) were already deducted from the bankroll
+    // at deal / insurance time.
+    final staked = state.currentBet + state.sideBet + state.insuranceBet;
+    final roundNet = returned - staked;
 
     return _applyCounters(state.copyWith(
       phase: GamePhase.result,
       bankroll: bankroll,
       handResults: results,
+      roundNet: roundNet,
     ));
   }
 
@@ -331,7 +386,7 @@ class GameEngine {
     return GameResult.push;
   }
 
-  int _payout(GameResult result, int bet, GameState state) {
+  int _payout(GameResult result, int bet) {
     switch (result) {
       case GameResult.blackjack:
         return bet + (bet * 1.5).toInt();

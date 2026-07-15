@@ -121,6 +121,19 @@ class CardModel {
   CardModel copyWith({bool? faceUp}) =>
       CardModel(suit: suit, rank: rank, faceUp: faceUp ?? this.faceUp);
 
+  // Compact wire format for online play. Suit/rank are sent as enum indices.
+  Map<String, dynamic> toJson() => {
+        's': suit.index,
+        'r': rank.index,
+        'u': faceUp,
+      };
+
+  factory CardModel.fromJson(Map<String, dynamic> json) => CardModel(
+        suit: Suit.values[json['s'] as int],
+        rank: Rank.values[json['r'] as int],
+        faceUp: json['u'] as bool? ?? true,
+      );
+
   @override
   String toString() => '${rank.display}${suit.symbol}';
 }
