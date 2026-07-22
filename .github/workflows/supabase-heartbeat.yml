@@ -1,0 +1,28 @@
+name: Keep Supabase project active
+
+on:
+  schedule:
+    # Run once per day. This is a real database RPC, not a page ping.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  heartbeat:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send database heartbeat
+        env:
+          SUPABASE_URL: https://yktyobprlradqtvmqfki.supabase.co
+          # A publishable key is public by design; it is also bundled in the
+          # Flutter app. Never put a service-role key in this workflow.
+          SUPABASE_PUBLISHABLE_KEY: sb_publishable_foYtDGPKyHV_wpdgjPcsjg_0x25jZMm
+        run: |
+          test -n "$SUPABASE_PUBLISHABLE_KEY"
+          curl --fail --silent --show-error \
+            --request POST "$SUPABASE_URL/rest/v1/rpc/keep_alive" \
+            --header "apikey: $SUPABASE_PUBLISHABLE_KEY" \
+            --header "Authorization: Bearer $SUPABASE_PUBLISHABLE_KEY" \
+            --header "Content-Type: application/json" \
+            --data '{}'

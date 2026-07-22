@@ -8,6 +8,17 @@ The Flutter app is connected to this Supabase project:
 The key in Flutter is a public publishable key, not a service role key. Never
 put a Supabase service role key into the app.
 
+## Keeping the Free Project Active
+
+Supabase can pause Free projects after a week without enough database activity.
+This game uses Realtime for multiplayer, which does not necessarily create
+database requests. Apply
+`migrations/20260722000000_free_tier_heartbeat.sql` in the Supabase SQL Editor,
+then push this repository to GitHub. The scheduled GitHub Actions workflow will
+call the small `keep_alive` database RPC once per day. It stores no user data
+and has no paid services; it uses only the same public publishable key already
+bundled into the Flutter app.
+
 ## Runtime Overrides
 
 For another Supabase project, run Flutter with:
