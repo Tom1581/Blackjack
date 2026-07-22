@@ -2,8 +2,8 @@ name: Keep Supabase project active
 
 on:
   schedule:
-    # Run once per day. This is a real database RPC, not a page ping.
-    - cron: '17 3 * * *'
+    # A few small database requests per day help Free projects avoid pausing.
+    - cron: '17 3,11,19 * * *'
   workflow_dispatch:
 
 permissions: {}

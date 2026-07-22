@@ -15,7 +15,7 @@ This game uses Realtime for multiplayer, which does not necessarily create
 database requests. Apply
 `migrations/20260722000000_free_tier_heartbeat.sql` in the Supabase SQL Editor,
 then push this repository to GitHub. The scheduled GitHub Actions workflow will
-call the small `keep_alive` database RPC once per day. It stores no user data
+call the small `keep_alive` database RPC three times per day. It stores no user data
 and has no paid services; it uses only the same public publishable key already
 bundled into the Flutter app.
 
