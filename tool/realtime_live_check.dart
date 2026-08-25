@@ -68,7 +68,10 @@ Future<void> main() async {
     await txChan.sendBroadcastMessage(
       event: 'msg',
       payload: {
-        'event': 'state',
+        // Mirrors SupabaseTransport. Note the key is 'kind', not 'event':
+        // Supabase overwrites payload['event'] with the broadcast event name.
+        'kind': 'state',
+        'from': 'sender',
         'data': {'ping': 'pong'}
       },
     );

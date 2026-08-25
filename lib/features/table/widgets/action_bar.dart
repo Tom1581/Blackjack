@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/strategy/basic_strategy.dart';
+import '../../../core/strategy/strategy_coach.dart';
 import '../../../theme/app_theme.dart';
 import '../table_provider.dart';
 
@@ -15,6 +17,9 @@ class ActionBar extends ConsumerWidget {
     // Both split and double stake exactly one more base bet for the active
     // hand — its own wager, independent of how many other hands are in play.
     final canAffordExtraBaseBet = state.bankroll >= hand.bet;
+    // The coach's recommendation, when the player has asked to see it.
+    final hint =
+        StrategyCoach.hintsEnabled ? ref.watch(strategyHintProvider) : null;
 
     return Container(
       decoration: BoxDecoration(
@@ -35,6 +40,7 @@ class ActionBar extends ConsumerWidget {
         children: [
           _ActionBtn(
             label: 'Stand',
+            recommended: hint == StrategyMove.stand,
             icon: Icons.pan_tool_outlined,
             color: AppColors.btnStand,
             accentColor: const Color(0xFFFF6B6B),
@@ -46,6 +52,7 @@ class ActionBar extends ConsumerWidget {
           const SizedBox(width: 8),
           _ActionBtn(
             label: 'Split',
+            recommended: hint == StrategyMove.split,
             icon: Icons.call_split,
             color: AppColors.btnSplit,
             accentColor: const Color(0xFFFFBB55),
@@ -58,6 +65,7 @@ class ActionBar extends ConsumerWidget {
           const SizedBox(width: 8),
           _ActionBtn(
             label: 'Double',
+            recommended: hint == StrategyMove.double,
             icon: Icons.add_circle_outline,
             color: AppColors.btnDouble,
             accentColor: const Color(0xFF5599FF),
@@ -70,6 +78,7 @@ class ActionBar extends ConsumerWidget {
           const SizedBox(width: 8),
           _ActionBtn(
             label: 'Hit',
+            recommended: hint == StrategyMove.hit,
             icon: Icons.arrow_circle_down_outlined,
             color: AppColors.btnHit,
             accentColor: const Color(0xFF66DD88),
@@ -90,6 +99,11 @@ class _ActionBtn extends StatelessWidget {
   final Color color;
   final Color accentColor;
   final bool enabled;
+
+  /// Basic strategy's pick. Marked, never forced — the player still chooses,
+  /// which is the only way anyone learns the chart.
+  final bool recommended;
+
   final VoidCallback onTap;
 
   const _ActionBtn({
@@ -99,6 +113,7 @@ class _ActionBtn extends StatelessWidget {
     required this.accentColor,
     required this.onTap,
     this.enabled = true,
+    this.recommended = false,
   });
 
   @override
@@ -115,8 +130,10 @@ class _ActionBtn extends StatelessWidget {
               color: color,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: accentColor.withValues(alpha: 0.3),
-                width: 1,
+                color: recommended && enabled
+                    ? AppColors.gold
+                    : accentColor.withValues(alpha: 0.3),
+                width: recommended && enabled ? 2 : 1,
               ),
               gradient: LinearGradient(
                 begin: Alignment.topCenter,
@@ -132,6 +149,12 @@ class _ActionBtn extends StatelessWidget {
                   blurRadius: 8,
                   offset: const Offset(0, 4),
                 ),
+                if (recommended && enabled)
+                  BoxShadow(
+                    color: AppColors.gold.withValues(alpha: 0.45),
+                    blurRadius: 14,
+                    spreadRadius: 1,
+                  ),
               ],
             ),
             child: Column(

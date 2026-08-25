@@ -2,11 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../core/ads/ad_service.dart';
 import '../../../theme/app_theme.dart';
 import '../table_provider.dart';
 
 /// Shown when the player can no longer afford the minimum bet.
-/// Offers a rewarded-ad simulation that grants chips, or a return to lobby.
+///
+/// Offers a real rewarded ad for chips. When no ad is available the chips are
+/// granted anyway and the button says so — a player with an empty bankroll
+/// must never be stuck, and a button must never promise an ad it cannot show.
 class BrokeModal extends ConsumerStatefulWidget {
   static const int rewardAmount = 500;
 
@@ -21,8 +25,14 @@ enum _AdState { idle, loading, rewarded }
 class _BrokeModalState extends ConsumerState<BrokeModal>
     with SingleTickerProviderStateMixin {
   _AdState _adState = _AdState.idle;
-  Timer? _adTimer;
   Timer? _dismissTimer;
+
+  /// Whether an ad is actually available. Decided once when the modal opens so
+  /// the button label cannot change under the player's finger.
+  bool _adAvailable = false;
+
+  /// Set when the player closed the ad early and earned nothing.
+  bool _adAbandoned = false;
   late final AnimationController _ctrl;
   late final Animation<double> _scale;
   late final Animation<double> _fade;
@@ -38,36 +48,53 @@ class _BrokeModalState extends ConsumerState<BrokeModal>
     _fade = CurvedAnimation(parent: _ctrl, curve: Curves.easeIn);
     _ctrl.forward();
     HapticFeedback.heavyImpact();
+    _adAvailable = ref.read(adServiceProvider).rewardedReady;
   }
 
   @override
   void dispose() {
-    _adTimer?.cancel();
     _dismissTimer?.cancel();
     _ctrl.dispose();
     super.dispose();
   }
 
-  void _watchAd() {
+  Future<void> _watchAd() async {
     if (_adState != _AdState.idle) return;
     HapticFeedback.mediumImpact();
-    setState(() => _adState = _AdState.loading);
+    setState(() {
+      _adState = _AdState.loading;
+      _adAbandoned = false;
+    });
 
-    // Simulated rewarded-ad playback (~2s).
-    _adTimer = Timer(const Duration(milliseconds: 2200), () {
-      if (!mounted) return;
-      HapticFeedback.heavyImpact();
-      setState(() => _adState = _AdState.rewarded);
+    // No ad to show means no ad is claimed: grant the chips and move on.
+    var earned = true;
+    if (_adAvailable) {
+      earned = await ref.read(adServiceProvider).showRewarded();
+    }
+    if (!mounted) return;
 
-      // Show the reward, fade out, then credit chips.
-      // Crediting last avoids the parent yanking the modal mid-animation
-      // (it's only mounted while bankroll < min bet).
-      _dismissTimer = Timer(const Duration(milliseconds: 900), () async {
-        if (!mounted) return;
-        await _ctrl.reverse();
-        if (!mounted) return;
-        ref.read(tableProvider.notifier).addReward(BrokeModal.rewardAmount);
+    if (!earned) {
+      // Closed early. Nothing is granted — that is what "rewarded" means —
+      // but the offer stays open so nobody is trapped on an empty bankroll.
+      setState(() {
+        _adState = _AdState.idle;
+        _adAbandoned = true;
+        _adAvailable = ref.read(adServiceProvider).rewardedReady;
       });
+      return;
+    }
+
+    HapticFeedback.heavyImpact();
+    setState(() => _adState = _AdState.rewarded);
+
+    // Show the reward, fade out, then credit chips.
+    // Crediting last avoids the parent yanking the modal mid-animation
+    // (it's only mounted while bankroll < min bet).
+    _dismissTimer = Timer(const Duration(milliseconds: 900), () async {
+      if (!mounted) return;
+      await _ctrl.reverse();
+      if (!mounted) return;
+      ref.read(tableProvider.notifier).addReward(BrokeModal.rewardAmount);
     });
   }
 
@@ -158,7 +185,11 @@ class _BrokeModalState extends ConsumerState<BrokeModal>
         ),
         const SizedBox(height: 8),
         Text(
-          'You\'re below the minimum bet.\nWatch a short ad to get back in the game.',
+          _adAbandoned
+              ? 'The ad was closed early, so no chips were added.\nTry again whenever you like.'
+              : _adAvailable
+                  ? 'You\'re below the minimum bet.\nWatch a short ad to get back in the game.'
+                  : 'You\'re below the minimum bet.\nHere are some chips to get back in the game.',
           textAlign: TextAlign.center,
           style: TextStyle(
             color: Colors.white.withValues(alpha: 0.65),
@@ -171,9 +202,16 @@ class _BrokeModalState extends ConsumerState<BrokeModal>
           width: double.infinity,
           child: ElevatedButton.icon(
             onPressed: _watchAd,
-            icon: const Icon(Icons.play_circle_outline, size: 22),
+            icon: Icon(
+              _adAvailable
+                  ? Icons.play_circle_outline
+                  : Icons.card_giftcard,
+              size: 22,
+            ),
             label: Text(
-              'WATCH AD  (+\$${BrokeModal.rewardAmount})',
+              _adAvailable
+                  ? 'WATCH AD  (+\$${BrokeModal.rewardAmount})'
+                  : 'GET \$${BrokeModal.rewardAmount} CHIPS',
               style: const TextStyle(
                 fontSize: 14,
                 fontWeight: FontWeight.w900,

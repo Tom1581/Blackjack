@@ -2,7 +2,24 @@
 class TransportMessage {
   final String event;
   final Map<String, dynamic> payload;
-  const TransportMessage(this.event, this.payload);
+
+  /// Who the transport says sent this message.
+  ///
+  /// The game layer reads the actor from here and NEVER from the payload body,
+  /// so a client cannot act as another player just by writing someone else's
+  /// id into the message it sends.
+  ///
+  /// How strong this is depends on the transport:
+  ///  * The in-memory broker used in tests reports the true sender.
+  ///  * `SupabaseTransport` reports the id on the message envelope. Supabase
+  ///    Broadcast relays a payload verbatim and does not stamp a sender, so a
+  ///    deliberately modified client can still forge it. Routing every action
+  ///    through this one field closes the accidental and casual cases and puts
+  ///    the seam in one place; making it unforgeable needs a server-side dealer
+  ///    with real auth, which is the documented upgrade path.
+  final String senderId;
+
+  const TransportMessage(this.event, this.payload, this.senderId);
 }
 
 /// A connected member of the room, as reported by presence.
@@ -22,6 +39,10 @@ abstract class RealtimeTransport {
   /// Join a room channel and start tracking presence with [presenceData].
   /// Completes once the channel is subscribed.
   Future<void> join(String roomCode, Map<String, dynamic> presenceData);
+
+  /// Replace this client's presence entry, e.g. to keep a lobby listing
+  /// current as seats fill up and the round moves on.
+  Future<void> updatePresence(Map<String, dynamic> presenceData);
 
   /// Broadcast an [event] with [payload] to the other clients on the channel.
   Future<void> send(String event, Map<String, dynamic> payload);

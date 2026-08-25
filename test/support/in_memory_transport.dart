@@ -23,9 +23,11 @@ class InMemoryBroker {
     _emitPresence(room);
   }
 
-  void _broadcast(String room, InMemoryTransport from, TransportMessage msg) {
+  void _broadcast(String room, InMemoryTransport from, String event,
+      Map<String, dynamic> payload) {
     for (final t in _rooms[room] ?? const <InMemoryTransport>[]) {
-      if (t != from) t._deliver(msg);
+      // The broker stamps the true sender, so the game layer can trust it.
+      if (t != from) t._deliver(TransportMessage(event, payload, from.clientId));
     }
   }
 
@@ -66,10 +68,17 @@ class InMemoryTransport implements RealtimeTransport {
   }
 
   @override
+  Future<void> updatePresence(Map<String, dynamic> presenceData) async {
+    _presenceData = presenceData;
+    final room = _room;
+    if (room != null) _broker._emitPresence(room);
+  }
+
+  @override
   Future<void> send(String event, Map<String, dynamic> payload) async {
     final room = _room;
     if (room == null) return;
-    _broker._broadcast(room, this, TransportMessage(event, payload));
+    _broker._broadcast(room, this, event, payload);
   }
 
   void _deliver(TransportMessage msg) {

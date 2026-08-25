@@ -57,11 +57,23 @@ class HandModel {
 
   HandModel markDoubled() => copyWith(isDoubled: true);
 
+  /// True when any card in this hand was redacted in transit — i.e. we are a
+  /// guest looking at the dealer's unturned hole card. Value-derived getters
+  /// below skip those cards, so they report the *visible* total rather than
+  /// silently folding in a placeholder rank.
+  bool get hasHidden {
+    for (final card in cards) {
+      if (card.hidden) return true;
+    }
+    return false;
+  }
+
   // Flexible Ace calculation — same logic as hand_value() in blackjack.py
   int get value {
     int total = 0;
     int aces = 0;
     for (final card in cards) {
+      if (card.hidden) continue;
       total += card.rank.value;
       if (card.rank == Rank.ace) aces++;
     }
@@ -82,6 +94,7 @@ class HandModel {
     int total = 0;
     int aces = 0;
     for (final card in cards) {
+      if (card.hidden) continue;
       total += card.rank.value;
       if (card.rank == Rank.ace) aces++;
     }
@@ -92,12 +105,12 @@ class HandModel {
     return aces > 0 && total <= 21;
   }
 
-  bool get isBust => value > 21;
+  bool get isBust => !hasHidden && value > 21;
 
-  bool get isBlackjack => cards.length == 2 && value == 21;
+  bool get isBlackjack => cards.length == 2 && !hasHidden && value == 21;
 
   bool get isPair =>
-      cards.length == 2 && cards[0].rank == cards[1].rank;
+      cards.length == 2 && !hasHidden && cards[0].rank == cards[1].rank;
 
   // House rule: double allowed on any two-card hand (DOA — Double On Any).
   bool get canDouble => cards.length == 2;

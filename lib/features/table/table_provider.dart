@@ -1,7 +1,12 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/audio/sound_service.dart';
 import '../../core/engine/game_engine.dart';
+import '../../core/models/card_model.dart';
 import '../../core/models/game_state.dart';
+import '../../core/strategy/basic_strategy.dart';
+import '../../core/strategy/strategy_coach.dart';
+import '../../core/reviews/review_prompter.dart';
 import '../leaderboard/leaderboard_providers.dart';
 import '../leaderboard/leaderboard_service.dart';
 
@@ -62,6 +67,26 @@ final _engineProvider = Provider<GameEngine>((ref) {
 });
 
 final showCountProvider = StateProvider<bool>((ref) => true);
+
+/// The most recent misplay, shown briefly next to the action bar and cleared
+/// on the next decision.
+final strategyFeedbackProvider = StateProvider<StrategyFeedback?>((ref) => null);
+
+/// What basic strategy would do with the hand in front of the player right
+/// now, or null when it is not their turn. Drives the hint on the action bar.
+final strategyHintProvider = Provider<StrategyMove?>((ref) {
+  final state = ref.watch(tableProvider);
+  if (state.phase != GamePhase.playerTurn) return null;
+  if (state.dealerHand.cards.isEmpty) return null;
+  final hand = state.activeHand;
+  if (hand.cards.length < 2) return null;
+  return BasicStrategy.best(
+    hand: hand,
+    dealerUp: state.dealerHand.cards.first,
+    canDouble: hand.canDouble && state.bankroll >= hand.bet,
+    canSplit: hand.isPair && state.bankroll >= hand.bet,
+  );
+});
 
 final tableProvider = NotifierProvider<TableNotifier, GameState>(TableNotifier.new);
 
@@ -127,6 +152,7 @@ class TableNotifier extends Notifier<GameState> {
     if (state.currentBet + state.sideBet + amount > state.bankroll) return;
     final spot = ref.read(activeSpotProvider).clamp(0, state.spotCount - 1);
     state = _engine.placeBet(state, amount, spot);
+    SoundService.play(Sfx.chip);
   }
 
   /// Add to the dealer-bust side bet (max $50). Silently ignored if the
@@ -134,6 +160,7 @@ class TableNotifier extends Notifier<GameState> {
   void addSideChip(int amount) {
     if (state.phase != GamePhase.betting) return;
     state = _engine.placeSideBet(state, amount);
+    SoundService.play(Sfx.chip);
   }
 
   void clearBet() {
@@ -143,9 +170,11 @@ class TableNotifier extends Notifier<GameState> {
 
   void deal() {
     if (state.phase != GamePhase.betting || state.currentBet == 0) return;
+    ref.read(strategyFeedbackProvider.notifier).state = null;
     _bankrollBeforeHand = state.bankroll;
     state = state.copyWith(phase: GamePhase.dealing);
     state = _engine.dealInitial(state);
+    SoundService.play(Sfx.card);
     _onAction();
   }
 
@@ -156,12 +185,15 @@ class TableNotifier extends Notifier<GameState> {
 
   void hit() {
     if (state.phase != GamePhase.playerTurn) return;
+    _scoreDecision(StrategyMove.hit);
     state = _engine.hit(state);
+    SoundService.play(Sfx.card);
     _onAction();
   }
 
   void stand() {
     if (state.phase != GamePhase.playerTurn) return;
+    _scoreDecision(StrategyMove.stand);
     state = _engine.stand(state);
     _onAction();
   }
@@ -172,7 +204,9 @@ class TableNotifier extends Notifier<GameState> {
     // Doubling stakes one extra base bet for *this* hand only — affordability
     // is per-hand, not the cumulative total across all hands.
     if (state.bankroll < state.activeHand.bet) return;
+    _scoreDecision(StrategyMove.double);
     state = _engine.doubleDown(state);
+    SoundService.play(Sfx.card);
     _onAction();
   }
 
@@ -182,8 +216,38 @@ class TableNotifier extends Notifier<GameState> {
     // Splitting also stakes exactly one more base bet (so re-splits remain
     // affordable as long as one more of this hand's bet is left).
     if (state.bankroll < state.activeHand.bet) return;
+    _scoreDecision(StrategyMove.split);
     state = _engine.split(state);
+    SoundService.play(Sfx.card);
     _onAction();
+  }
+
+  /// Compare what the player just did with what basic strategy says, record
+  /// it, and surface the difference. Called before the state moves on, because
+  /// the decision has to be judged on the hand they were actually looking at.
+  void _scoreDecision(StrategyMove played) {
+    final dealer = state.dealerHand;
+    if (dealer.cards.isEmpty) return;
+    final hand = state.activeHand;
+    if (hand.cards.length < 2) return;
+
+    final best = BasicStrategy.best(
+      hand: hand,
+      dealerUp: dealer.cards.first,
+      canDouble: hand.canDouble && state.bankroll >= hand.bet,
+      canSplit: hand.isPair && state.bankroll >= hand.bet,
+    );
+    final correct = best == played;
+    StrategyCoach.record(correct: correct);
+    ref.read(strategyFeedbackProvider.notifier).state = correct
+        ? null
+        : StrategyFeedback(
+            played: played,
+            best: best,
+            handValue: hand.value,
+            handWasSoft: hand.isSoft,
+            dealerUp: dealer.cards.first.rank.display,
+          );
   }
 
   /// Common post-action hook. If the engine has handed off to the dealer,
@@ -210,12 +274,14 @@ class TableNotifier extends Notifier<GameState> {
 
     // Flip the hole card.
     state = _engine.revealDealerHole(state);
+    SoundService.play(Sfx.card);
     await Future.delayed(_dealerAfterRevealPause);
     if (!_stillInDealerTurn()) return;
 
     // Draw additional dealer cards one at a time, paced for the eye.
     while (_engine.dealerShouldHit(state)) {
       state = _engine.dealerHit(state);
+      SoundService.play(Sfx.card);
       await Future.delayed(_dealerBetweenHitsPause);
       if (!_stillInDealerTurn()) return;
     }
@@ -251,8 +317,23 @@ class TableNotifier extends Notifier<GameState> {
 
   void _maybeAutoFinish() {
     if (state.phase == GamePhase.result) {
+      _playOutcome();
       _saveBankroll();
       _recordWeeklyDelta();
+    }
+  }
+
+  /// One sound per round, picked from the best thing that happened — a
+  /// blackjack on any hand is worth hearing about even alongside a loss.
+  void _playOutcome() {
+    if (state.handResults.contains(GameResult.blackjack)) {
+      SoundService.play(Sfx.blackjack);
+    } else if (state.roundNet > 0) {
+      SoundService.play(Sfx.win);
+    } else if (state.roundNet < 0) {
+      SoundService.play(Sfx.lose);
+    } else {
+      SoundService.play(Sfx.push);
     }
   }
 
@@ -261,6 +342,9 @@ class TableNotifier extends Notifier<GameState> {
     _bankrollBeforeHand = null;
     if (snapshot == null) return;
     final delta = state.bankroll - snapshot;
+    // A finished round is the natural place to ask for a rating — but only
+    // after a win, and only at the milestones ReviewPrompter enforces.
+    ReviewPrompter.onRoundFinished(delta);
     if (delta != 0) {
       LeaderboardService.recordHand(delta).then((_) {
         // Bump the refresh tick so the lobby Top-3 and the leaderboard

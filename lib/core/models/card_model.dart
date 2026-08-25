@@ -116,24 +116,53 @@ class CardModel {
   final Rank rank;
   final bool faceUp;
 
-  const CardModel({required this.suit, required this.rank, this.faceUp = true});
+  /// True when this card reached us over the wire with its identity withheld.
+  /// Face-down cards are redacted by the sender, so [suit] and [rank] are
+  /// meaningless placeholders — never read them, and never count such a card
+  /// toward a hand value. Always false for locally dealt cards.
+  final bool hidden;
 
-  CardModel copyWith({bool? faceUp}) =>
-      CardModel(suit: suit, rank: rank, faceUp: faceUp ?? this.faceUp);
+  const CardModel({
+    required this.suit,
+    required this.rank,
+    this.faceUp = true,
+    this.hidden = false,
+  });
 
-  // Compact wire format for online play. Suit/rank are sent as enum indices.
-  Map<String, dynamic> toJson() => {
-        's': suit.index,
-        'r': rank.index,
-        'u': faceUp,
-      };
-
-  factory CardModel.fromJson(Map<String, dynamic> json) => CardModel(
-        suit: Suit.values[json['s'] as int],
-        rank: Rank.values[json['r'] as int],
-        faceUp: json['u'] as bool? ?? true,
+  CardModel copyWith({bool? faceUp, bool? hidden}) => CardModel(
+        suit: suit,
+        rank: rank,
+        faceUp: faceUp ?? this.faceUp,
+        hidden: hidden ?? this.hidden,
       );
 
+  /// Compact wire format for online play. Suit/rank are sent as enum indices.
+  ///
+  /// A face-down card is sent WITHOUT its rank and suit. Previously the hole
+  /// card shipped in the clear with only a "draw a card back" flag, so every
+  /// guest already held the dealer's answer. Redacting here means the identity
+  /// physically never leaves the host until the card is turned over.
+  Map<String, dynamic> toJson() => faceUp
+      ? {'s': suit.index, 'r': rank.index, 'u': true}
+      : const {'u': false, 'h': true};
+
+  factory CardModel.fromJson(Map<String, dynamic> json) {
+    if (json['h'] == true || json['s'] == null || json['r'] == null) {
+      // Redacted by the sender — a placeholder that renders as a card back.
+      return const CardModel(
+        suit: Suit.spades,
+        rank: Rank.two,
+        faceUp: false,
+        hidden: true,
+      );
+    }
+    return CardModel(
+      suit: Suit.values[json['s'] as int],
+      rank: Rank.values[json['r'] as int],
+      faceUp: json['u'] as bool? ?? true,
+    );
+  }
+
   @override
-  String toString() => '${rank.display}${suit.symbol}';
+  String toString() => hidden ? '??' : '${rank.display}${suit.symbol}';
 }

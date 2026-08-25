@@ -3,15 +3,17 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/models/card_model.dart';
+import '../../core/supabase/supabase_service.dart';
 import '../../theme/app_theme.dart';
 import '../table/widgets/card_widget.dart';
+import 'lobby/table_directory.dart';
 import 'online_controller.dart';
 import 'online_providers.dart';
 import 'online_table_screen.dart';
 import 'widgets/felt_background.dart';
 
 /// Entry point for online play: pick a name, then host a new table or join an
-/// existing one by its 4-letter room code.
+/// existing one by its room code.
 class OnlineEntryScreen extends ConsumerStatefulWidget {
   const OnlineEntryScreen({super.key});
 
@@ -25,6 +27,17 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
   String? _playerId;
   bool _busy = false;
   String? _error;
+
+  /// Live list of tables other people are hosting right now.
+  LobbyBrowser? _browser;
+  List<TableListing>? _tables;
+
+  /// Whether a table this player hosts is advertised in the lobby, or is
+  /// invite-only by room code.
+  bool _listPublicly = true;
+
+  /// A reconnect attempt is in flight after the backend failed to come up.
+  bool _retrying = false;
 
   @override
   void initState() {
@@ -40,10 +53,37 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
       _playerId = id;
       if (name.isNotEmpty) _nameCtrl.text = name;
     });
+    _startBrowsing();
+  }
+
+  /// Watch the lobby. Presence carries each host's listing, so tables appear
+  /// and vanish on their own with no database and nothing to clean up.
+  void _startBrowsing() {
+    final id = _playerId;
+    if (id == null || _browser != null || !AppSupabase.isReady) return;
+    final browser = LobbyBrowser(ref.read(transportFactoryProvider)(id));
+    _browser = browser;
+    browser.stream.listen((tables) {
+      if (mounted) setState(() => _tables = tables);
+    });
+    browser.start().catchError((_) {
+      // A lobby we cannot reach just shows as empty; hosting and joining by
+      // code both still work.
+      if (mounted) setState(() => _tables = const []);
+    });
+  }
+
+  Future<void> _stopBrowsing() async {
+    final browser = _browser;
+    _browser = null;
+    if (mounted) setState(() => _tables = null);
+    await browser?.stop();
   }
 
   @override
   void dispose() {
+    _browser?.stop();
+    _browser = null;
     _nameCtrl.dispose();
     _codeCtrl.dispose();
     super.dispose();
@@ -52,7 +92,7 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
   String get _name => _nameCtrl.text.trim();
 
   Future<void> _open({required bool host, required String roomCode}) async {
-    if (_playerId == null || _busy) return;
+    if (_playerId == null || _busy || !AppSupabase.isReady) return;
     if (_name.isEmpty) {
       setState(() => _error = 'Enter a name first');
       return;
@@ -62,18 +102,36 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
       _error = null;
     });
     await savePlayerName(_name);
-    final transport = ref.read(transportFactoryProvider)(_playerId!);
+    // Browsing and playing do not need to happen at once — drop the lobby
+    // connection while at the table and pick it back up on the way out.
+    await _stopBrowsing();
+    final factory = ref.read(transportFactoryProvider);
     final controller = OnlineController(
-      transport: transport,
+      transport: factory(_playerId!),
       isHost: host,
       roomCode: roomCode,
       playerName: _name,
+      lobbyTransport: host ? factory(_playerId!) : null,
+      listPublicly: _listPublicly,
     );
     if (!mounted) return;
     setState(() => _busy = false);
-    await Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => OnlineTableScreen(controller: controller),
-    ));
+    final outcome = await Navigator.of(context).push<OnlineExit>(
+      MaterialPageRoute(
+        builder: (_) => OnlineTableScreen(controller: controller),
+      ),
+    );
+    if (!mounted) return;
+    if (outcome == OnlineExit.retryHost) {
+      _retryWithNewCode();
+    } else {
+      _startBrowsing();
+    }
+  }
+
+  void _joinListed(TableListing listing) {
+    HapticFeedback.mediumImpact();
+    _open(host: false, roomCode: listing.code);
   }
 
   void _createTable() {
@@ -81,11 +139,19 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
     _open(host: true, roomCode: generateRoomCode());
   }
 
+  /// The table screen pops with this when the code it tried to host turned out
+  /// to be in use. Collisions are vanishingly rare, but when one happens the
+  /// player should just get a fresh code rather than an error to puzzle over.
+  void _retryWithNewCode() {
+    if (!mounted) return;
+    _createTable();
+  }
+
   void _joinTable() {
     HapticFeedback.mediumImpact();
     final code = _codeCtrl.text.trim().toUpperCase();
-    if (code.length < 4) {
-      setState(() => _error = 'Enter the 4-letter room code');
+    if (code.length < roomCodeLength) {
+      setState(() => _error = 'Enter the $roomCodeLength-character room code');
       return;
     }
     _open(host: false, roomCode: code);
@@ -103,6 +169,9 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
               : Column(
                   children: [
                     _header(),
+                    if (!AppSupabase.isReady)
+                      Expanded(child: _offlinePanel())
+                    else
                     Expanded(
                       child: SingleChildScrollView(
                         physics: const BouncingScrollPhysics(),
@@ -137,6 +206,10 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
                                 ),
                               ),
                             const SizedBox(height: 14),
+                            _openTablesPanel(),
+                            const SizedBox(height: 16),
+                            _orRow(),
+                            const SizedBox(height: 16),
                             _createPanel(),
                             const SizedBox(height: 16),
                             _orRow(),
@@ -184,6 +257,147 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
     );
   }
 
+  /// Online needs the backend; the rest of the app does not. If it never came
+  /// up, say so plainly and offer the one action that helps.
+  Widget _offlinePanel() {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.wifi_off,
+                color: AppColors.gold.withValues(alpha: 0.8), size: 40),
+            const SizedBox(height: 16),
+            const Text(
+              'Online play is unavailable',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 18,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'We could not reach the game service. Check your connection and '
+              'try again — single-player works either way.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.65),
+                fontSize: 13.5,
+                height: 1.45,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 22),
+            SizedBox(
+              width: 220,
+              child: _GoldButton(
+                label: _retrying ? 'RECONNECTING…' : 'TRY AGAIN',
+                icon: Icons.refresh,
+                onTap: _retrying ? null : _retryBackend,
+              ),
+            ),
+            const SizedBox(height: 14),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(
+                'Back to single player',
+                style: TextStyle(
+                  color: AppColors.gold.withValues(alpha: 0.85),
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _retryBackend() async {
+    setState(() => _retrying = true);
+    final ok = await AppSupabase.tryInitialize();
+    if (!mounted) return;
+    setState(() => _retrying = false);
+    if (ok) _startBrowsing();
+  }
+
+  Widget _openTablesPanel() {
+    final tables = _tables;
+    const maxRows = 6;
+    return _panel(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Icon(Icons.table_restaurant,
+                  color: AppColors.gold.withValues(alpha: 0.9), size: 18),
+              const SizedBox(width: 8),
+              const Text(
+                'OPEN TABLES',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1,
+                ),
+              ),
+              const Spacer(),
+              if (tables != null)
+                Text(
+                  tables.isEmpty
+                      ? 'none yet'
+                      : '${tables.length} live',
+                  style: TextStyle(
+                    color: AppColors.gold.withValues(alpha: 0.8),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          if (tables == null)
+            const _LobbyLoading()
+          else if (tables.isEmpty)
+            Text(
+              'Nobody is hosting right now. Start a table below and it will '
+              'show up here for everyone else.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.55),
+                fontSize: 12,
+                height: 1.4,
+              ),
+            )
+          else ...[
+            for (final t in tables.take(maxRows)) ...[
+              _TableRow(
+                listing: t,
+                onJoin: _busy ? null : () => _joinListed(t),
+              ),
+              if (t != tables.take(maxRows).last) const SizedBox(height: 8),
+            ],
+            if (tables.length > maxRows)
+              Padding(
+                padding: const EdgeInsets.only(top: 10),
+                child: Text(
+                  '+${tables.length - maxRows} more open — join by code, or '
+                  'start your own.',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.45),
+                    fontSize: 11.5,
+                  ),
+                ),
+              ),
+          ],
+        ],
+      ),
+    );
+  }
+
   Widget _createPanel() {
     return _panel(
       child: Column(
@@ -214,7 +428,42 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
               height: 1.35,
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+          GestureDetector(
+            onTap: () => setState(() => _listPublicly = !_listPublicly),
+            behavior: HitTestBehavior.opaque,
+            child: Row(
+              children: [
+                SizedBox(
+                  height: 26,
+                  width: 40,
+                  child: FittedBox(
+                    fit: BoxFit.contain,
+                    child: Switch(
+                      value: _listPublicly,
+                      activeThumbColor: AppColors.wood,
+                      activeTrackColor: AppColors.gold,
+                      onChanged: (v) => setState(() => _listPublicly = v),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    _listPublicly
+                        ? 'Listed in the lobby — anyone can join'
+                        : 'Invite only — reachable by room code',
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.7),
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
           _GoldButton(
             label: _busy ? 'CONNECTING…' : 'CREATE A TABLE',
             icon: Icons.casino,
@@ -249,16 +498,16 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
           const SizedBox(height: 10),
           TextField(
             controller: _codeCtrl,
-            maxLength: 4,
+            maxLength: roomCodeLength,
             textCapitalization: TextCapitalization.characters,
             style: const TextStyle(
               color: Colors.white,
-              fontSize: 24,
+              fontSize: 22,
               fontWeight: FontWeight.w900,
-              letterSpacing: 10,
+              letterSpacing: 7,
             ),
             textAlign: TextAlign.center,
-            decoration: _fieldDecoration('ABCD'),
+            decoration: _fieldDecoration('ABCDE'),
           ),
           const SizedBox(height: 8),
           _OutlineButton(
@@ -416,6 +665,164 @@ class _Hero extends StatelessWidget {
             color: Colors.white.withValues(alpha: 0.6),
             fontSize: 12.5,
             height: 1.4,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// One advertised table in the lobby list.
+class _TableRow extends StatelessWidget {
+  final TableListing listing;
+  final VoidCallback? onJoin;
+
+  const _TableRow({required this.listing, this.onJoin});
+
+  @override
+  Widget build(BuildContext context) {
+    final joinable = listing.isJoinable;
+    return Container(
+      padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.28),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: joinable
+              ? AppColors.gold.withValues(alpha: 0.28)
+              : Colors.white.withValues(alpha: 0.1),
+        ),
+      ),
+      child: Opacity(
+        opacity: joinable ? 1 : 0.55,
+        child: Row(
+          children: [
+            Container(
+              width: 30,
+              height: 30,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                color: AppColors.surface,
+                border: Border.all(
+                    color: AppColors.gold.withValues(alpha: 0.5), width: 1.2),
+              ),
+              alignment: Alignment.center,
+              child: Text(
+                listing.hostName.isEmpty
+                    ? '?'
+                    : listing.hostName.substring(0, 1).toUpperCase(),
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    "${listing.hostName}'s table",
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '${listing.code}  ·  ${listing.seated}/${listing.maxSeats}'
+                    '  ·  ${listing.inProgress ? 'in play' : 'taking bets'}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.5),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (!joinable)
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                ),
+                child: Text(
+                  'FULL',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+              )
+            else
+              GestureDetector(
+                onTap: onJoin,
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+                  decoration: BoxDecoration(
+                    gradient: const LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [Color(0xFFFFE680), AppColors.gold],
+                    ),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: const Text(
+                    'JOIN',
+                    style: TextStyle(
+                      color: AppColors.wood,
+                      fontSize: 11,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.8,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _LobbyLoading extends StatelessWidget {
+  const _LobbyLoading();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const SizedBox(
+          width: 14,
+          height: 14,
+          child: CircularProgressIndicator(
+            strokeWidth: 2,
+            valueColor: AlwaysStoppedAnimation(AppColors.gold),
+          ),
+        ),
+        const SizedBox(width: 10),
+        Text(
+          'Looking for open tables…',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.55),
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
           ),
         ),
       ],

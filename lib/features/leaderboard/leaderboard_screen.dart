@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme/app_theme.dart';
 import 'leaderboard_providers.dart';
 import 'leaderboard_service.dart';
+import 'weekly_board_service.dart';
 import 'widgets/crown_icon.dart';
 
 class LeaderboardScreen extends ConsumerStatefulWidget {
@@ -57,42 +58,197 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
               child: Text('$e',
                   style: const TextStyle(color: Colors.white70)),
             ),
-            data: (entries) {
-              final userIndex =
-                  entries.indexWhere((e) => e.isCurrentUser);
+            data: (board) {
+              final entries = board.entries;
+              if (entries.isEmpty) {
+                return Column(
+                  children: [
+                    _Header(untilReset: _untilReset),
+                    if (!board.isLive) _BoardNotice(status: board.status),
+                    Expanded(child: _EmptyBoard(status: board.status)),
+                  ],
+                );
+              }
+
+              final userIndex = entries.indexWhere((e) => e.isCurrentUser);
+              final me = board.me;
               final top3 = entries.take(3).toList();
-              final next7 = entries.skip(3).take(7).toList();
-              final userInTop10 = userIndex >= 0 && userIndex < 10;
-              final userEntry = entries[userIndex];
+              final rest = entries.skip(3).toList();
+              final gap = board.gapToNextRank;
 
               return Column(
                 children: [
                   _Header(untilReset: _untilReset),
+                  if (!board.isLive) _BoardNotice(status: board.status),
+                  if (gap != null && gap > 0) _ChaseBanner(gap: gap),
                   const SizedBox(height: 4),
                   _Podium(entries: top3),
                   const SizedBox(height: 16),
-                  _SectionLabel(label: 'TOP 10'),
+                  _SectionLabel(
+                    label: board.playerCount == 1
+                        ? 'THIS WEEK'
+                        : '${board.playerCount} PLAYERS THIS WEEK',
+                  ),
                   const SizedBox(height: 6),
                   Expanded(
-                    child: ListView.builder(
-                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                      itemCount: next7.length,
-                      itemBuilder: (_, i) {
-                        final rank = i + 4;
-                        final e = next7[i];
-                        return _RankRow(rank: rank, entry: e);
-                      },
-                    ),
+                    child: rest.isEmpty
+                        ? const SizedBox.shrink()
+                        : ListView.builder(
+                            padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                            itemCount: rest.length,
+                            itemBuilder: (_, i) => _RankRow(
+                              rank: rest[i].rank,
+                              entry: rest[i],
+                            ),
+                          ),
                   ),
-                  if (!userInTop10)
-                    _UserPinnedRow(
-                      rank: userIndex + 1,
-                      entry: userEntry,
-                    ),
+                  // Pin the player when they are nowhere on the visible board.
+                  if (userIndex < 0 && me != null && me.handsPlayed > 0)
+                    _UserPinnedRow(rank: me.rank, entry: me),
                 ],
               );
             },
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Shown when the shared board could not be reached. The player still sees
+/// their own week, so this explains the missing competition rather than
+/// pretending there is none.
+class _BoardNotice extends StatelessWidget {
+  final BoardStatus status;
+  const _BoardNotice({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.gold.withValues(alpha: 0.25)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.cloud_off,
+              size: 15, color: AppColors.gold.withValues(alpha: 0.8)),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              status == BoardStatus.offline
+                  ? "Can't reach the rankings — showing your week only."
+                  : 'Rankings are being set up. Your score is saved and will '
+                      'appear once they are live.',
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.7),
+                fontSize: 11.5,
+                height: 1.35,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The number that actually makes someone play one more round.
+class _ChaseBanner extends StatelessWidget {
+  final int gap;
+  const _ChaseBanner({required this.gap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            AppColors.gold.withValues(alpha: 0.22),
+            AppColors.gold.withValues(alpha: 0.06),
+          ],
+        ),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.gold.withValues(alpha: 0.45)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.trending_up, size: 17, color: AppColors.gold),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+                children: [
+                  TextSpan(
+                    text: '\$$gap',
+                    style: TextStyle(
+                      color: AppColors.gold,
+                      fontWeight: FontWeight.w900,
+                    ),
+                  ),
+                  const TextSpan(text: ' to pass the player above you'),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Nobody has a score yet this week — including you.
+class _EmptyBoard extends StatelessWidget {
+  final BoardStatus status;
+  const _EmptyBoard({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(30),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CrownIcon(color: AppColors.gold.withValues(alpha: 0.8), size: 40),
+            const SizedBox(height: 18),
+            Text(
+              status == BoardStatus.live
+                  ? 'The board is wide open'
+                  : 'No score yet this week',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 19,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              status == BoardStatus.live
+                  ? 'Nobody has posted a score this week. Play a few hands and '
+                      'the top spot is yours.'
+                  : 'Play a few hands and your weekly profit shows up here.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 13.5,
+                height: 1.45,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ],
         ),
       ),
     );
@@ -413,7 +569,8 @@ class _RankRow extends StatelessWidget {
           SizedBox(
             width: 26,
             child: Text(
-              '$rank',
+              // Rank 0 means "played, but outside the fetched board".
+              rank > 0 ? '$rank' : '—',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: isUser ? AppColors.gold : Colors.white60,

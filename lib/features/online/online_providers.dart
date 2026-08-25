@@ -38,11 +38,19 @@ Future<void> savePlayerName(String name) async {
   await prefs.setString('online_player_name', name.trim());
 }
 
-/// A short, human-friendly room code (unambiguous alphabet).
+/// Length of a room code. Five characters over a 32-symbol alphabet is ~33.5M
+/// codes — enough that two live tables colliding is not a practical concern,
+/// and the host still probes the channel before claiming one.
+const roomCodeLength = 5;
+
+/// A short, human-friendly room code (unambiguous alphabet — no O/0, I/1).
 String generateRoomCode([Random? rng]) {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   final r = rng ?? Random();
-  return List.generate(4, (_) => alphabet[r.nextInt(alphabet.length)]).join();
+  return List.generate(
+    roomCodeLength,
+    (_) => alphabet[r.nextInt(alphabet.length)],
+  ).join();
 }
 
 String _randomId() {

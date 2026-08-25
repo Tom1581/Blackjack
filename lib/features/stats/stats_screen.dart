@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/strategy/strategy_coach.dart';
 import '../../theme/app_theme.dart';
 
 // Simple in-memory session stats (persisted via shared_preferences in production)
@@ -17,6 +18,7 @@ final _statsProvider = FutureProvider<_SessionStats>((ref) async {
     countHistory: (prefs.getStringList('count_history') ?? [])
         .map(int.parse)
         .toList(),
+    strategy: await StrategyCoach.read(),
   );
 });
 
@@ -30,6 +32,10 @@ class _SessionStats {
   final int currentBankroll;
   final List<int> countHistory;
 
+  /// How the player's decisions compare with basic strategy — the number this
+  /// app exists to move.
+  final StrategyRecord strategy;
+
   const _SessionStats({
     required this.handsPlayed,
     required this.wins,
@@ -39,6 +45,7 @@ class _SessionStats {
     required this.startBankroll,
     required this.currentBankroll,
     required this.countHistory,
+    required this.strategy,
   });
 
   double get winRate => handsPlayed > 0 ? wins / handsPlayed : 0;
@@ -98,6 +105,8 @@ class _StatsBody extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _StrategyAccuracyCard(record: stats.strategy),
+          const SizedBox(height: 16),
           // Profit/Loss banner
           Container(
             width: double.infinity,
@@ -358,4 +367,73 @@ class _SparklinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_SparklinePainter old) => old.data != data;
+}
+
+/// Basic-strategy accuracy: the one number that says whether someone is
+/// actually getting better, as opposed to just getting lucky.
+class _StrategyAccuracyCard extends StatelessWidget {
+  final StrategyRecord record;
+
+  const _StrategyAccuracyCard({required this.record});
+
+  @override
+  Widget build(BuildContext context) {
+    final percent = record.accuracyPercent;
+    final color = !record.isMeaningful
+        ? AppColors.neutral
+        : percent >= 95
+            ? AppColors.favorable
+            : percent >= 85
+                ? AppColors.gold
+                : AppColors.unfavorable;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: color.withValues(alpha: 0.4)),
+      ),
+      child: Column(
+        children: [
+          Text(
+            'BASIC STRATEGY ACCURACY',
+            style: TextStyle(
+              color: color.withValues(alpha: 0.85),
+              fontSize: 11,
+              letterSpacing: 2,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            record.total == 0 ? '—' : '$percent%',
+            style: TextStyle(
+              color: color,
+              fontSize: 40,
+              fontWeight: FontWeight.w900,
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            record.total == 0
+                ? 'Play a few hands to start scoring your decisions'
+                : record.isMeaningful
+                    ? '${record.correct} of ${record.total} decisions '
+                        '· ${record.mistakes} to work on'
+                    : '${record.total} decisions so far — '
+                        'keep going for a real read',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Colors.white.withValues(alpha: 0.55),
+              fontSize: 12,
+              height: 1.35,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }

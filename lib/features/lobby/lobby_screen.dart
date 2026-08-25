@@ -5,10 +5,14 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ads/ad_service.dart';
 import '../../core/models/card_model.dart';
+import '../../core/audio/sound_service.dart';
+import '../../core/progress/daily_streak.dart';
+import '../../core/strategy/strategy_coach.dart';
 import '../../theme/app_theme.dart';
 import '../leaderboard/leaderboard_providers.dart';
 import '../leaderboard/leaderboard_screen.dart';
 import '../leaderboard/leaderboard_service.dart';
+import '../leaderboard/weekly_board_service.dart';
 import '../leaderboard/widgets/crown_icon.dart';
 import '../online/online_entry_screen.dart';
 import '../stats/stats_screen.dart';
@@ -138,6 +142,8 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
                     ),
                     const SizedBox(height: 20),
                     _BankrollCard(bankroll: state.bankroll),
+                    const SizedBox(height: 12),
+                    const _DailyStreakCard(),
                     const SizedBox(height: 16),
                     _GlowingPlayButton(
                       pulse: _pulseCtrl,
@@ -680,6 +686,382 @@ class _SecondaryButton extends StatelessWidget {
 //  Settings panel & Hi-Lo explainer (kept compact below the fold).
 // ─────────────────────────────────────────────────────────────────────────
 
+/// Sound is a device preference rather than game state, so it keeps its own
+/// little bit of state instead of living in a provider.
+/// The reason to open the app tomorrow. Deliberately low-pressure: no
+/// countdown, no warning that a streak is about to lapse — just a reward that
+/// grows across a week and quietly starts over if a day is missed.
+class _DailyStreakCard extends ConsumerStatefulWidget {
+  const _DailyStreakCard();
+
+  @override
+  ConsumerState<_DailyStreakCard> createState() => _DailyStreakCardState();
+}
+
+class _DailyStreakCardState extends ConsumerState<_DailyStreakCard> {
+  StreakState? _state;
+  bool _claiming = false;
+  bool _doubling = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  Future<void> _refresh() async {
+    final next = await DailyStreak.read();
+    if (mounted) setState(() => _state = next);
+  }
+
+  Future<void> _claim() async {
+    if (_claiming) return;
+    setState(() => _claiming = true);
+    final chips = await DailyStreak.claim();
+    if (chips > 0) {
+      HapticFeedback.mediumImpact();
+      SoundService.play(Sfx.chip);
+      ref.read(tableProvider.notifier).addReward(chips);
+    }
+    if (!mounted) return;
+    setState(() => _claiming = false);
+    await _refresh();
+    if (!mounted || chips <= 0) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Daily bonus claimed — \$$chips chips'),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  /// Opt-in ad: the player chooses to watch it, and only gets the extra chips
+  /// if they actually finish it.
+  Future<void> _watchToDouble() async {
+    if (_doubling) return;
+    setState(() => _doubling = true);
+    final earned = await ref.read(adServiceProvider).showRewarded();
+    if (!mounted) return;
+
+    var bonus = 0;
+    if (earned) {
+      bonus = await DailyStreak.claimDouble();
+      if (bonus > 0) {
+        HapticFeedback.heavyImpact();
+        SoundService.play(Sfx.chip);
+        ref.read(tableProvider.notifier).addReward(bonus);
+      }
+    }
+    if (!mounted) return;
+    setState(() => _doubling = false);
+    await _refresh();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          bonus > 0
+              ? 'Bonus doubled — another \$$bonus chips'
+              : 'No chips added — the ad was not finished',
+        ),
+        duration: const Duration(seconds: 2),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final state = _state;
+    if (state == null) return const SizedBox(height: 84);
+    final ready = !state.claimedToday;
+    // Only offer the ad when one is genuinely loaded and ready to play.
+    final rewardedReady = ref.watch(
+      adServiceProvider.select((service) => service.rewardedReady),
+    );
+    final canDouble = state.canDouble && rewardedReady;
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 14),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: ready
+              ? [const Color(0xFF3A2606), const Color(0xFF1C1204)]
+              : [const Color(0xFF16200F), const Color(0xFF0D1608)],
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: AppColors.gold.withValues(alpha: ready ? 0.55 : 0.2),
+          width: ready ? 1.5 : 1,
+        ),
+        boxShadow: ready
+            ? [
+                BoxShadow(
+                  color: AppColors.gold.withValues(alpha: 0.18),
+                  blurRadius: 20,
+                  spreadRadius: 1,
+                ),
+              ]
+            : null,
+      ),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              Icon(
+                ready ? Icons.card_giftcard : Icons.check_circle_outline,
+                size: 16,
+                color: AppColors.gold.withValues(alpha: ready ? 1 : 0.6),
+              ),
+              const SizedBox(width: 8),
+              Text(
+                ready ? 'DAILY BONUS' : 'CLAIMED TODAY',
+                style: TextStyle(
+                  color: AppColors.gold.withValues(alpha: ready ? 1 : 0.6),
+                  fontSize: 11,
+                  letterSpacing: 2.2,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                state.streak > 0
+                    ? '${state.streak} day streak'
+                    : 'start a streak',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.55),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              for (var day = 1; day <= DailyStreak.cycleLength; day++)
+                _StreakPip(
+                  day: day,
+                  reward: DailyStreak.rewards[day - 1],
+                  filled: state.pipFilled(day),
+                  isToday: state.pipIsToday(day),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          if (ready)
+            GestureDetector(
+              onTap: _claiming ? null : _claim,
+              child: Container(
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                      Color(0xFFFFE680),
+                      AppColors.gold,
+                      Color(0xFFB8860B),
+                    ],
+                  ),
+                  borderRadius: BorderRadius.circular(11),
+                  boxShadow: [
+                    BoxShadow(
+                      color: AppColors.gold.withValues(alpha: 0.4),
+                      blurRadius: 14,
+                    ),
+                  ],
+                ),
+                child: Text(
+                  _claiming ? 'CLAIMING…' : 'CLAIM \$${state.todayReward}',
+                  style: const TextStyle(
+                    color: AppColors.wood,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 1.2,
+                  ),
+                ),
+              ),
+            )
+          else if (canDouble)
+            GestureDetector(
+              onTap: _doubling ? null : _watchToDouble,
+              child: Container(
+                height: 42,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(11),
+                  border: Border.all(
+                      color: AppColors.gold.withValues(alpha: 0.7), width: 1.5),
+                  color: AppColors.gold.withValues(alpha: 0.12),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.play_circle_outline,
+                        size: 18, color: AppColors.gold),
+                    const SizedBox(width: 8),
+                    Text(
+                      _doubling
+                          ? 'LOADING…'
+                          : 'WATCH AD TO DOUBLE  +\$${state.todayReward}',
+                      style: const TextStyle(
+                        color: AppColors.gold,
+                        fontSize: 12.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.8,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            )
+          else
+            Text(
+              state.doubledToday
+                  ? 'Doubled today — back tomorrow for \$${state.tomorrowReward}'
+                  : 'Back tomorrow for \$${state.tomorrowReward}',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.6),
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StreakPip extends StatelessWidget {
+  final int day;
+  final int reward;
+  final bool filled;
+  final bool isToday;
+
+  const _StreakPip({
+    required this.day,
+    required this.reward,
+    required this.filled,
+    required this.isToday,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final active = filled || isToday;
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: filled
+                ? AppColors.gold
+                : Colors.black.withValues(alpha: 0.35),
+            border: Border.all(
+              color: isToday
+                  ? AppColors.gold
+                  : AppColors.gold.withValues(alpha: filled ? 0.9 : 0.25),
+              width: isToday ? 2 : 1,
+            ),
+          ),
+          alignment: Alignment.center,
+          child: filled
+              ? const Icon(Icons.check, size: 14, color: AppColors.wood)
+              : Text(
+                  '$day',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: active ? 0.9 : 0.4),
+                    fontSize: 11,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          reward >= 1000
+              ? '${(reward / 1000).toStringAsFixed(reward % 1000 == 0 ? 0 : 1)}k'
+              : '$reward',
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: active ? 0.65 : 0.3),
+            fontSize: 8.5,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Basic-strategy hints. On by default — this is a trainer, and hiding the
+/// answer by default helps nobody learn it.
+class _HintsToggleRow extends StatefulWidget {
+  const _HintsToggleRow();
+
+  @override
+  State<_HintsToggleRow> createState() => _HintsToggleRowState();
+}
+
+class _HintsToggleRowState extends State<_HintsToggleRow> {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Expanded(
+          child: Text(
+            'Basic strategy hints',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ),
+        Switch(
+          value: StrategyCoach.hintsEnabled,
+          onChanged: (value) async {
+            await StrategyCoach.setHintsEnabled(value);
+            if (mounted) setState(() {});
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _SoundToggleRow extends StatefulWidget {
+  const _SoundToggleRow();
+
+  @override
+  State<_SoundToggleRow> createState() => _SoundToggleRowState();
+}
+
+class _SoundToggleRowState extends State<_SoundToggleRow> {
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        const Expanded(
+          child: Text(
+            'Sound effects',
+            style: TextStyle(color: Colors.white70, fontSize: 14),
+          ),
+        ),
+        Switch(
+          value: SoundService.enabled,
+          onChanged: (value) async {
+            await SoundService.setEnabled(value);
+            if (mounted) setState(() {});
+          },
+        ),
+      ],
+    );
+  }
+}
+
 class _SettingsPanel extends ConsumerWidget {
   final bool showCount;
   final ShoeMode shoeMode;
@@ -730,6 +1112,10 @@ class _SettingsPanel extends ConsumerWidget {
               ),
             ],
           ),
+          const SizedBox(height: 6),
+          const _SoundToggleRow(),
+          const SizedBox(height: 6),
+          const _HintsToggleRow(),
           const SizedBox(height: 6),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1139,34 +1525,61 @@ class _WeeklyTop3Card extends ConsumerWidget {
                   style: TextStyle(color: Colors.white54, fontSize: 12),
                 ),
               ),
-              data: (entries) {
-                if (entries.length < 3) {
-                  return const SizedBox.shrink();
+              data: (board) {
+                final entries = board.entries;
+                // A real board starts empty and fills up, so show whatever is
+                // there rather than hiding the card until three people exist.
+                if (entries.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 14),
+                    child: Text(
+                      board.isLive
+                          ? 'Nobody has posted a score this week — the top '
+                              'spot is open.'
+                          : 'Play a hand to start your week.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 12,
+                        height: 1.35,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  );
                 }
+
+                const crowns = [
+                  AppColors.gold,
+                  Color(0xFFB9C4CD),
+                  Color(0xFFCD7F32),
+                ];
                 final top3 = entries.take(3).toList();
-                final userIndex = entries.indexWhere((e) => e.isCurrentUser);
-                final userRank = userIndex + 1;
-                final userInTop3 = userIndex < 3;
+                final me = board.me;
+                final onBoard = entries.any((e) => e.isCurrentUser);
+                final myRank = me?.rank ?? 0;
+                final gap = board.gapToNextRank;
+
+                final String status;
+                if (!onBoard || myRank == 0) {
+                  status = 'Play a hand to join the board';
+                } else if (myRank == 1) {
+                  status = "You're #1 this week — hold it";
+                } else if (gap != null && gap > 0) {
+                  status = "You're #$myRank — \$$gap to move up";
+                } else {
+                  status = "You're #$myRank this week";
+                }
 
                 return Column(
                   children: [
-                    _Top3Row(
-                      rank: 1,
-                      crownColor: AppColors.gold,
-                      entry: top3[0],
-                    ),
-                    const SizedBox(height: 4),
-                    _Top3Row(
-                      rank: 2,
-                      crownColor: const Color(0xFFB9C4CD),
-                      entry: top3[1],
-                    ),
-                    const SizedBox(height: 4),
-                    _Top3Row(
-                      rank: 3,
-                      crownColor: const Color(0xFFCD7F32),
-                      entry: top3[2],
-                    ),
+                    for (var i = 0; i < top3.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 4),
+                      _Top3Row(
+                        rank: top3[i].rank,
+                        crownColor: crowns[i],
+                        entry: top3[i],
+                      ),
+                    ],
                     const SizedBox(height: 10),
                     Container(
                       height: 1,
@@ -1185,11 +1598,9 @@ class _WeeklyTop3Card extends ConsumerWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            userInTop3
-                                ? "You're in the top 3 — keep it up"
-                                : "You're #$userRank this week",
+                            status,
                             style: TextStyle(
-                              color: userInTop3
+                              color: myRank == 1
                                   ? AppColors.gold
                                   : Colors.white.withValues(alpha: 0.65),
                               fontSize: 11,

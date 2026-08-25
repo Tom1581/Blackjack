@@ -46,6 +46,8 @@ class TableScreen extends ConsumerWidget {
                   ),
                 ),
 
+                const _StrategyFeedbackBar(),
+
                 // Bottom controls (bet or action)
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 250),
@@ -404,6 +406,55 @@ class _BettingCircle extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// A quiet correction shown just above the controls after a misplay.
+///
+/// The whole premise of a trainer is that a wrong play gets named. It is
+/// deliberately small and non-blocking: the hand carries on, and it clears
+/// itself on the next decision or when the round ends.
+class _StrategyFeedbackBar extends ConsumerWidget {
+  const _StrategyFeedbackBar();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final feedback = ref.watch(strategyFeedbackProvider);
+    return AnimatedSize(
+      duration: const Duration(milliseconds: 200),
+      curve: Curves.easeOut,
+      child: feedback == null
+          ? const SizedBox(width: double.infinity)
+          : Container(
+              width: double.infinity,
+              margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppColors.gold.withValues(alpha: 0.14),
+                borderRadius: BorderRadius.circular(10),
+                border:
+                    Border.all(color: AppColors.gold.withValues(alpha: 0.5)),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.school_outlined,
+                      size: 16, color: AppColors.gold),
+                  const SizedBox(width: 9),
+                  Expanded(
+                    child: Text(
+                      feedback.message,
+                      style: const TextStyle(
+                        color: AppColors.gold,
+                        fontSize: 12,
+                        height: 1.3,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
     );
   }
 }
