@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/supabase/supabase_service.dart';
+import 'online_room_access.dart';
 import 'transport/realtime_transport.dart';
 import 'transport/supabase_transport.dart';
 
@@ -14,6 +15,12 @@ typedef TransportFactory = RealtimeTransport Function(String clientId);
 final transportFactoryProvider = Provider<TransportFactory>((ref) {
   final client = ref.watch(supabaseClientProvider);
   return (clientId) => SupabaseTransport(client, clientId);
+});
+
+/// The production-only room admission service. Widget and controller tests
+/// override the transport layer, so they stay entirely offline.
+final onlineRoomAccessProvider = Provider<OnlineRoomAccess>((ref) {
+  return OnlineRoomAccess(ref.watch(supabaseClientProvider));
 });
 
 /// Stable per-device player id (persisted). Used as the presence/seat key.
@@ -38,10 +45,10 @@ Future<void> savePlayerName(String name) async {
   await prefs.setString('online_player_name', name.trim());
 }
 
-/// Length of a room code. Five characters over a 32-symbol alphabet is ~33.5M
-/// codes — enough that two live tables colliding is not a practical concern,
-/// and the host still probes the channel before claiming one.
-const roomCodeLength = 5;
+/// Length of an invite code. Ten characters over a 32-symbol alphabet gives
+/// roughly 1.1 quadrillion possibilities, so an invite-only table cannot be
+/// joined by casually guessing a short public code.
+const roomCodeLength = 10;
 
 /// A short, human-friendly room code (unambiguous alphabet — no O/0, I/1).
 String generateRoomCode([Random? rng]) {

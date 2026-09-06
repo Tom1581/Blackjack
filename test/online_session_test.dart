@@ -16,7 +16,7 @@ Future<void> settle([int ms = 25]) =>
 /// Anything that has to travel between two clients needs this rather than a
 /// fixed sleep: a busy machine can leave a broadcast in flight past any delay
 /// you pick, which shows up as a rare, confusing failure.
-Future<bool> waitUntil(bool Function() condition, {int tries = 60}) async {
+Future<bool> waitUntil(bool Function() condition, {int tries = 300}) async {
   for (var i = 0; i < tries; i++) {
     if (condition()) return true;
     await settle(10);
@@ -41,6 +41,13 @@ void main() {
 
   /// Controllers wired for tests: the host claims its code immediately instead
   /// of spending the production probe window listening for another table.
+  ///
+  /// [tickInterval] is pushed out of reach by default so the table's phase
+  /// clocks — 25s betting, 25s turn, 12s insurance and results — can never
+  /// fire part-way through a test. A test that plays dozens of rounds takes
+  /// long enough in real time to trip them otherwise, which showed up as rare
+  /// and baffling failures. The clocks themselves are covered in
+  /// `online_logic_test.dart` with an injected clock.
   OnlineController make(
     String id, {
     required bool host,
@@ -49,6 +56,7 @@ void main() {
     Duration joinTimeout = const Duration(seconds: 30),
     Duration heartbeat = const Duration(seconds: 30),
     Duration hostProbe = Duration.zero,
+    Duration tickInterval = const Duration(hours: 1),
   }) {
     final c = OnlineController(
       transport: broker.createClient(id),
@@ -58,6 +66,7 @@ void main() {
       hostProbe: hostProbe,
       joinTimeout: joinTimeout,
       heartbeat: heartbeat,
+      tickInterval: tickInterval,
       hostAbsentGrace: const Duration(milliseconds: 30),
     );
     created.add(c);
@@ -93,8 +102,9 @@ void main() {
   /// Everyone marks themselves ready, then the host deals.
   Future<void> dealRound(
     OnlineController host,
-    List<OnlineController> all,
-  ) async {
+    List<OnlineController> all, {
+    bool answerInsurance = true,
+  }) async {
     for (final c in all) {
       c.setReady(true);
     }
@@ -103,8 +113,8 @@ void main() {
         .every((s) => s.ready));
     host.deal();
     await waitUntil(() => host.table!.phase != OnlinePhase.betting);
-    // Clear insurance if it came up.
-    if (host.table!.phase == OnlinePhase.insurance) {
+    // Clear insurance if it came up, unless the caller wants to inspect it.
+    if (answerInsurance && host.table!.phase == OnlinePhase.insurance) {
       for (final c in all) {
         c.takeInsurance(false);
       }
@@ -393,15 +403,23 @@ void main() {
       final host = await connect('host', host: true);
       final guest = await connect('guest', host: false);
 
-      // Move the guest's bankroll off the starting amount.
-      await betAll(host, {host: 100, guest: 400});
-      await dealRound(host, [host, guest]);
-      await playOut(host, [host, guest]);
-      host.nextRound();
-      await settle();
-
-      final settled = host.table!.seatById('guest')!.bankroll;
-      expect(settled, isNot(1000), reason: 'sanity: the bankroll moved');
+      // Move the guest's bankroll off the starting amount, so "kept their
+      // chips" is distinguishable from "reset to the starting 1000".
+      //
+      // A pushed hand returns the stake exactly, leaving the bankroll back at
+      // 1000 — so play on until it has genuinely moved rather than assuming
+      // one round is enough.
+      var settled = 1000;
+      for (var round = 0; round < 8 && settled == 1000; round++) {
+        await betAll(host, {host: 100, guest: 400});
+        await dealRound(host, [host, guest]);
+        await playOut(host, [host, guest]);
+        host.nextRound();
+        await waitUntil(() => host.table!.phase == OnlinePhase.betting);
+        settled = host.table!.seatById('guest')!.bankroll;
+      }
+      expect(settled, isNot(1000),
+          reason: 'eight straight pushes is not a thing');
 
       await guest.transport.leave();
       await settle(40);
@@ -487,12 +505,7 @@ void main() {
       var found = false;
       for (var round = 0; round < 60 && !found; round++) {
         await betAll(host, {host: 100, guest: 100});
-        for (final c in [host, guest]) {
-          c.setReady(true);
-        }
-        await settle();
-        host.deal();
-        await settle();
+        await dealRound(host, [host, guest], answerInsurance: false);
 
         if (host.table!.phase == OnlinePhase.insurance) {
           found = true;

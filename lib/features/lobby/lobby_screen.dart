@@ -3,10 +3,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../../core/ads/ad_service.dart';
 import '../../core/models/card_model.dart';
 import '../../core/audio/sound_service.dart';
 import '../../core/progress/daily_streak.dart';
+import '../../core/rules/rule_set.dart';
+import '../../core/rules/rules_store.dart';
 import '../../core/strategy/strategy_coach.dart';
 import '../../theme/app_theme.dart';
 import '../leaderboard/leaderboard_providers.dart';
@@ -14,6 +17,7 @@ import '../leaderboard/leaderboard_screen.dart';
 import '../leaderboard/leaderboard_service.dart';
 import '../leaderboard/weekly_board_service.dart';
 import '../leaderboard/widgets/crown_icon.dart';
+import '../drill/daily_count_drill_screen.dart';
 import '../online/online_entry_screen.dart';
 import '../stats/stats_screen.dart';
 import '../table/table_provider.dart';
@@ -157,6 +161,17 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
                     ),
                     const SizedBox(height: 12),
                     _SecondaryButton(
+                      icon: Icons.timer_outlined,
+                      label: 'DAILY  COUNT  DRILL',
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const DailyCountDrillScreen(),
+                        ));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _SecondaryButton(
                       icon: Icons.groups,
                       label: 'PLAY  ONLINE  WITH  FRIENDS',
                       onTap: () {
@@ -264,7 +279,7 @@ class _TitleBlock extends StatelessWidget {
         Text(
           'HI-LO  CARD  COUNTING',
           style: TextStyle(
-            color: AppColors.gold.withValues(alpha: 0.7),
+            color: AppColors.gold.withValues(alpha: 0.9),
             fontSize: 11,
             letterSpacing: 5,
             fontWeight: FontWeight.w700,
@@ -274,7 +289,7 @@ class _TitleBlock extends StatelessWidget {
         Text(
           'play like a real casino',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.45),
+            color: Colors.white.withValues(alpha: 0.7),
             fontSize: 12,
             fontStyle: FontStyle.italic,
             letterSpacing: 1,
@@ -289,7 +304,7 @@ class _TitleBlock extends StatelessWidget {
   Widget _suit(String s, Color c) => Text(
         s,
         style: TextStyle(
-          color: c.withValues(alpha: 0.55),
+          color: c.withValues(alpha: 0.72),
           fontSize: 18,
           shadows: const [Shadow(color: Colors.black54, blurRadius: 4)],
         ),
@@ -520,7 +535,7 @@ class _BankrollCard extends StatelessWidget {
                 Text(
                   'YOUR BANKROLL',
                   style: TextStyle(
-                    color: AppColors.gold.withValues(alpha: 0.75),
+                    color: AppColors.gold.withValues(alpha: 0.9),
                     fontSize: 9.5,
                     letterSpacing: 3,
                     fontWeight: FontWeight.w800,
@@ -617,12 +632,12 @@ class _GlowingPlayButton extends StatelessWidget {
                 ),
                 const SizedBox(width: 6),
                 Text(
-                  'PLAY',
+                  'PLAY A HAND',
                   style: TextStyle(
                     color: AppColors.wood,
-                    fontSize: 22,
+                    fontSize: 18,
                     fontWeight: FontWeight.w900,
-                    letterSpacing: 6,
+                    letterSpacing: 2,
                     shadows: [
                       Shadow(
                         color: Colors.white.withValues(alpha: 0.3),
@@ -831,7 +846,7 @@ class _DailyStreakCardState extends ConsumerState<_DailyStreakCard> {
                     ? '${state.streak} day streak'
                     : 'start a streak',
                 style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.55),
+                  color: Colors.white.withValues(alpha: 0.72),
                   fontSize: 11,
                   fontWeight: FontWeight.w700,
                 ),
@@ -962,9 +977,8 @@ class _StreakPip extends StatelessWidget {
           height: 26,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: filled
-                ? AppColors.gold
-                : Colors.black.withValues(alpha: 0.35),
+            color:
+                filled ? AppColors.gold : Colors.black.withValues(alpha: 0.35),
             border: Border.all(
               color: isToday
                   ? AppColors.gold
@@ -996,6 +1010,215 @@ class _StreakPip extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+/// Which table the player is practising against. Strategy is not universal,
+/// so the coach and the dealer both follow whatever is chosen here.
+class _RulePickerRow extends ConsumerWidget {
+  const _RulePickerRow();
+
+  Future<void> _pick(BuildContext context, WidgetRef ref) async {
+    final current = ref.read(rulesProvider);
+    final chosen = await showModalBottomSheet<RuleSet>(
+      context: context,
+      backgroundColor: AppColors.surface,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'TABLE RULES',
+                style: TextStyle(
+                  color: AppColors.gold.withValues(alpha: 0.85),
+                  fontSize: 11,
+                  letterSpacing: 2.5,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'The correct play changes with the house rules. Both the '
+                'dealer and the coach follow whichever table you pick.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.6),
+                  fontSize: 12.5,
+                  height: 1.4,
+                ),
+              ),
+              const SizedBox(height: 16),
+              for (final preset in RuleSet.presets) ...[
+                _RuleOption(
+                  rules: preset,
+                  selected: preset.id == current.id,
+                  onTap: () => Navigator.pop(sheetContext, preset),
+                ),
+                const SizedBox(height: 8),
+              ],
+              const SizedBox(height: 4),
+              Text(
+                'Single and double deck use different strategy charts and are '
+                'not offered yet.',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.4),
+                  fontSize: 11.5,
+                  height: 1.35,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (chosen == null || chosen.id == current.id) return;
+    await RulesStore.select(chosen);
+    ref.read(rulesProvider.notifier).state = chosen;
+  }
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rules = ref.watch(rulesProvider);
+    return GestureDetector(
+      onTap: () => _pick(context, ref),
+      behavior: HitTestBehavior.opaque,
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Table rules',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '${rules.name} · ${rules.summary}',
+                  style: TextStyle(
+                    color: rules.isUnfavourable
+                        ? AppColors.unfavorable
+                        : AppColors.gold.withValues(alpha: 0.8),
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right,
+              color: Colors.white.withValues(alpha: 0.5), size: 20),
+        ],
+      ),
+    );
+  }
+}
+
+class _RuleOption extends StatelessWidget {
+  final RuleSet rules;
+  final bool selected;
+  final VoidCallback onTap;
+
+  const _RuleOption({
+    required this.rules,
+    required this.selected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Container(
+        padding: const EdgeInsets.all(13),
+        decoration: BoxDecoration(
+          color: selected
+              ? AppColors.gold.withValues(alpha: 0.12)
+              : Colors.black.withValues(alpha: 0.25),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: selected
+                ? AppColors.gold
+                : Colors.white.withValues(alpha: 0.12),
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Text(
+                        rules.name,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 14,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      if (rules.isUnfavourable) ...[
+                        const SizedBox(width: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            borderRadius: BorderRadius.circular(20),
+                            border: Border.all(
+                                color: AppColors.unfavorable
+                                    .withValues(alpha: 0.7)),
+                          ),
+                          child: const Text(
+                            'BAD TABLE',
+                            style: TextStyle(
+                              color: AppColors.unfavorable,
+                              fontSize: 8.5,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    rules.blurb,
+                    style: TextStyle(
+                      color: Colors.white.withValues(alpha: 0.58),
+                      fontSize: 12,
+                      height: 1.35,
+                    ),
+                  ),
+                  const SizedBox(height: 5),
+                  Text(
+                    rules.summary,
+                    style: TextStyle(
+                      color: AppColors.gold.withValues(alpha: 0.75),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.5,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              const Icon(Icons.check_circle, color: AppColors.gold, size: 20),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -1062,6 +1285,56 @@ class _SoundToggleRowState extends State<_SoundToggleRow> {
   }
 }
 
+class _PrivacyPolicyRow extends StatelessWidget {
+  const _PrivacyPolicyRow();
+
+  static final Uri _privacyPolicyUri =
+      Uri.parse('https://thomas1581.github.io/privacy.html');
+
+  Future<void> _open(BuildContext context) async {
+    final opened = await launchUrl(
+      _privacyPolicyUri,
+      mode: LaunchMode.externalApplication,
+    );
+    if (!context.mounted || opened) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Unable to open the privacy policy.')),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: 'Open privacy policy',
+      child: InkWell(
+        onTap: () => _open(context),
+        borderRadius: BorderRadius.circular(6),
+        child: const Padding(
+          padding: EdgeInsets.symmetric(vertical: 8),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Privacy policy',
+                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                ),
+              ),
+              Icon(
+                Icons.open_in_new,
+                color: Colors.white54,
+                size: 18,
+                semanticLabel: 'Open privacy policy',
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SettingsPanel extends ConsumerWidget {
   final bool showCount;
   final ShoeMode shoeMode;
@@ -1116,6 +1389,10 @@ class _SettingsPanel extends ConsumerWidget {
           const _SoundToggleRow(),
           const SizedBox(height: 6),
           const _HintsToggleRow(),
+          const SizedBox(height: 2),
+          const _PrivacyPolicyRow(),
+          const SizedBox(height: 10),
+          const _RulePickerRow(),
           const SizedBox(height: 6),
           Row(
             crossAxisAlignment: CrossAxisAlignment.center,
@@ -1144,8 +1421,7 @@ class _SettingsPanel extends ConsumerWidget {
                     children: [
                       Text(
                         'Hands per round',
-                        style:
-                            TextStyle(color: Colors.white70, fontSize: 14),
+                        style: TextStyle(color: Colors.white70, fontSize: 14),
                       ),
                       SizedBox(height: 2),
                       Text(

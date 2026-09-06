@@ -21,6 +21,8 @@ class _CountingTransport implements RealtimeTransport {
   @override
   String get clientId => inner.clientId;
   @override
+  bool get usesServerStampedIdentity => inner.usesServerStampedIdentity;
+  @override
   Stream<TransportMessage> get messages => inner.messages;
   @override
   Stream<List<PresenceMember>> get presence => inner.presence;
@@ -92,7 +94,11 @@ void main() {
   group('A table listing', () {
     test('round-trips through presence data', () {
       final l = listing('ABCDE',
-          host: 'Bo', seated: 3, max: 5, phase: OnlinePhase.playerTurns, round: 4);
+          host: 'Bo',
+          seated: 3,
+          max: 5,
+          phase: OnlinePhase.playerTurns,
+          round: 4);
       final back = TableListing.tryParse(l.toJson())!;
       expect(back, l);
       expect(back.code, 'ABCDE');
@@ -161,8 +167,8 @@ void main() {
       await announcer('h1').announce(listing('FULLL', host: 'F', seated: 5));
       await announcer('h2').announce(listing('QUIET', host: 'Q', seated: 1));
       await announcer('h3').announce(listing('BUSYY', host: 'B', seated: 4));
-      await announcer('h4')
-          .announce(listing('PLAYY', host: 'P', seated: 3, phase: OnlinePhase.playerTurns));
+      await announcer('h4').announce(listing('PLAYY',
+          host: 'P', seated: 3, phase: OnlinePhase.playerTurns));
       await settle();
 
       final codes = b.tables!.map((t) => t.code).toList();
@@ -197,8 +203,8 @@ void main() {
       expect(b.tables!.single.seated, 3);
       expect(b.tables!.single.inProgress, isFalse);
 
-      await a.announce(
-          listing('AAAAA', seated: 3, phase: OnlinePhase.playerTurns, round: 2));
+      await a.announce(listing('AAAAA',
+          seated: 3, phase: OnlinePhase.playerTurns, round: 2));
       await settle();
       expect(b.tables!.single.inProgress, isTrue);
       expect(b.tables!.single.round, 2);

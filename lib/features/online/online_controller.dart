@@ -202,6 +202,12 @@ class OnlineController extends ChangeNotifier {
         // table on the same channel.
         _probeTimer = Timer(hostProbe, _claimTable);
       } else {
+        // Room admission can happen while a new socket is still negotiating
+        // Realtime. Ask for the host state only after this private channel is
+        // fully ready; the server stamps our member identity on the request,
+        // giving the host a reliable fallback if the initial join notice was
+        // sent before this subscriber could receive it.
+        await transport.send('requestState', {'name': playerName});
         _joinTimer = Timer(joinTimeout, () {
           if (_disposed || table != null) return;
           conn = OnlineConn.noTable;
@@ -290,6 +296,18 @@ class OnlineController extends ChangeNotifier {
     if (_disposed) return;
     if (isHost) {
       switch (m.event) {
+        case 'memberJoined':
+          // This comes from `join_online_room`, whose database function puts
+          // the authenticated account id in the envelope. Presence is not an
+          // identity proof and may only affect liveness below.
+          final name = m.payload['name'] as String? ?? 'Player';
+          final logic = _logic;
+          if (logic == null) {
+            _earlyArrivals[m.senderId] = name;
+          } else {
+            logic.addPlayer(m.senderId, name);
+            _pushHostState();
+          }
         case 'intent':
           // The actor is the transport's sender, never a value the message
           // body claims — otherwise any client could act as any player.
@@ -299,6 +317,16 @@ class OnlineController extends ChangeNotifier {
             m.payload['amount'] as int?,
           );
         case 'requestState':
+          // The database only sends this for an admitted member and supplies
+          // the approved display name. It is the reliable post-subscription
+          // join handshake, while memberJoined remains the fast path.
+          final name = m.payload['name'] as String? ?? 'Player';
+          final logic = _logic;
+          if (logic == null) {
+            _earlyArrivals[m.senderId] = name;
+          } else {
+            logic.addPlayer(m.senderId, name);
+          }
           _pushHostState();
         case 'state':
           // Another client is hosting this room code. We are not the table.
@@ -411,7 +439,13 @@ class OnlineController extends ChangeNotifier {
       return;
     }
 
-    present.forEach(logic.addPlayer);
+    // Presence itself is not signed. On the production transport only the
+    // server-stamped `memberJoined` message may create a seat; presence merely
+    // tells us which existing seats are currently connected. The in-memory
+    // transport intentionally retains its small, table-free test protocol.
+    if (!transport.usesServerStampedIdentity) {
+      present.forEach(logic.addPlayer);
+    }
     // A player who drops keeps their seat and chips for a grace period.
     for (final seat in logic.state.seats) {
       if (seat.id == clientId) continue;

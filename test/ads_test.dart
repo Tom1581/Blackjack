@@ -108,6 +108,17 @@ void main() {
       );
     });
 
+    test('the rewarded unit is configured', () {
+      // An empty unit is not a crash, which is exactly why it needs a test:
+      // both rewarded placements quietly fall back to granting their reward
+      // with no ad, and all rewarded revenue silently becomes zero.
+      expect(
+        AdMobIds.androidRewardedUnitId,
+        isNotEmpty,
+        reason: 'blanking this disables every rewarded placement',
+      );
+      expect(AdMobIds.androidRewardedUnitId, startsWith('ca-app-pub-'));
+    });
   });
 
   group('Doubling the daily bonus', () {

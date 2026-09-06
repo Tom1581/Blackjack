@@ -1,22 +1,41 @@
 # Handover — what is left, and who can actually do it
 
-Checked live on 2026-08-25. Most of what remains is **console work in your
+Checked live on 2026-08-26. Most of what remains is **console work in your
 Google and Supabase accounts**, which no coding agent can do for you. The
 genuine code tasks are in part B and there are not many.
 
 ## Where things stand
 
-| | |
-| --- | --- |
-| Tests | **270 passing**, 6 consecutive clean runs |
-| `flutter analyze` | **0 errors, 0 warnings** |
-| Android build | Builds clean |
-| Committed | **No — 63 changed files are sitting in the working tree** |
-| Live for users | **No** — nothing has been released since `dc86f5a` |
+Verified 2026-08-26, immediately before deployment.
 
-Built and tested but **not yet earning or visible to anyone**: rewarded ads,
-weekly rankings, strategy coach, sound, daily streak, onboarding, the online
-lobby.
+| Check | Result |
+| --- | --- |
+| `flutter test` | **310 passing**, 8 consecutive clean runs |
+| `flutter analyze` | **0 errors, 0 warnings** |
+| Release bundle | **Builds** — `app-release.aab`, 46.9 MB |
+| Sound assets in the bundle | 7 of 7 |
+| Live Realtime (multiplayer) | Presence + broadcast roundtrip OK |
+| Supabase project | Awake (`keep_alive` → 200) |
+| Version | `1.1.0+4` |
+
+### Safe to ship, with two features inert until you act
+
+Neither breaks anything; both degrade on purpose.
+
+- **Rewarded ads earn $0** until a live unit id exists (A1). Both placements
+  grant their chips with no ad and the button says so.
+- **Weekly rankings show a board of one** until the migration is applied and
+  anonymous sign-ins are enabled (A3, A4). Scores accumulate locally and appear
+  the moment you switch them on.
+
+Re-verified today: `weekly_rankings` → **404**, auth → **`anonymous_provider_disabled`**,
+rewarded unit → **empty**.
+
+### One thing to expect after the update
+
+Existing players will see the three-page intro once, because the "seen" flag is
+new in this release. It is skippable from the first tap, and given how much has
+changed since 1.0.2 it is arguably the right thing to show them.
 
 ---
 
@@ -85,7 +104,22 @@ description, full description and release notes from
 worth shooting: the open-tables lobby, a five-seat table mid-round, and the
 coach correcting a misplay.
 
-### A6. Optional — `app-ads.txt`
+### A6. Update the Data Safety form and privacy policy  ← compliance
+
+The app declares `com.google.android.gms.permission.AD_ID` and serves AdMob
+ads, so Play requires the Data safety form to disclose the advertising ID and
+advertising use, and the privacy policy to match.
+
+Play Console → **Policy → App content → Data safety**. Confirm:
+
+- [ ] Device or other IDs → **collected**, purpose **Advertising or marketing**
+- [ ] Third-party sharing declared for AdMob
+- [ ] The privacy policy at `privacy-policy-google-sites.html` says the same
+
+An inaccurate form is grounds for removal, so this is worth getting right
+before the next release rather than after.
+
+### A7. Optional — `app-ads.txt`
 
 Needs a website on your Play listing. Host the line AdMob gives you at
 `https://yourdomain.com/app-ads.txt`. Some ad demand will not bid without it.
@@ -93,6 +127,16 @@ Needs a website on your Play listing. Host the line AdMob gives you at
 ---
 
 ## Part B — real code tasks (hand these to Codex)
+
+### B0. Analytics and crash reporting — not built, deliberately
+
+There is none. Play Console already reports crashes and ANRs for free with no
+SDK, and that is the right place to start given there are 12 monthly users —
+an analytics SDK would report on almost nobody while adding a dependency, a
+Data Safety disclosure, and a consent flow.
+
+Worth adding once there is traffic to measure. It needs a Firebase project,
+which only you can create.
 
 ### B1. Paste the rewarded unit id  *(needs A1 first)*
 
@@ -170,14 +214,30 @@ being set up".
 
 ---
 
-## What I will pick up afterwards
+## What is built, and what is next
 
-Once A1–A4 are done and a release is out, the next features that make sense:
+**Done since the review:** selectable table rules (`RuleSet`) with the strategy
+chart recalculated per table, the action buttons gated on the table's actual
+doubling and splitting rules, and online tables defaulting to invite-only.
 
-- **Missions and achievements** tied to strategy accuracy — the coach already
-  tracks every decision, so "play 20 hands at 90% accuracy" is now cheap to add
-- **Practice drills** — deal only the hands someone gets wrong most
-- **A strategy chart screen** the player can study between sessions
+**Next, in order:**
+
+1. **Per-category mastery** — record every decision by hand type (hard / soft /
+   pair), dealer up-card and rule set, rather than one global accuracy number.
+   This had to wait for `RuleSet`, since "correct" depends on the table.
+2. **Weak-hand drills** generated from the player's own mistakes, plus separate
+   Hard Totals, Soft Totals, Pairs and Speed Round drills.
+3. **Single and double deck charts.** Not offered today on purpose — they are
+   genuinely different from the multi-deck chart, and shipping them against the
+   multi-deck one would teach the wrong play.
+4. **Late surrender.** Modelled in `RuleSet` but no preset enables it, because
+   the table has no surrender action yet. It needs an engine action, a button
+   in both UIs, and a new result type — half-adding it would be worse than not
+   having it.
+5. **Counting curriculum** — count-down drills, true-count maths, and a clearly
+   labelled index-deviation set after basic strategy is solid.
+6. **Accuracy league** alongside the profit league. Accuracy is harder to fake
+   and matches what the app claims to teach.
 
 ## The thing none of this fixes
 

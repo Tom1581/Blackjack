@@ -1,5 +1,6 @@
 import '../models/card_model.dart';
 import '../models/hand_model.dart';
+import '../rules/rule_set.dart';
 
 /// A decision the player can make on a hand.
 enum StrategyMove {
@@ -14,14 +15,17 @@ enum StrategyMove {
   final String label;
 }
 
-/// Basic strategy for **this game's** rules, which is the only chart worth
-/// showing a player: six decks, **dealer hits soft 17**, double on any two,
-/// double after split allowed, no surrender.
+/// Basic strategy, calculated against a specific [RuleSet].
 ///
-/// Those rules matter. The H17 chart differs from the far more commonly
-/// published S17 one in exactly three places — 11 vs ace, soft 18 vs 2, and
-/// soft 19 vs 6 — and each is called out below. Teaching an S17 chart at an
-/// H17 table is the classic way a trainer quietly makes someone worse.
+/// Strategy is not universal, which is the whole reason this takes rules at
+/// all. The H17 chart differs from the far more commonly published S17 one in
+/// exactly three places — 11 vs ace, soft 18 vs 2, and soft 19 vs 6 — and
+/// double-after-split changes four pair rows. Teaching the wrong one is how a
+/// trainer quietly makes someone worse.
+///
+/// **Deck count:** these are the multi-deck tables, correct for four decks and
+/// up. Single and double deck have materially different charts and are not
+/// offered as presets until those charts exist and are tested.
 class BasicStrategy {
   const BasicStrategy._();
 
@@ -36,20 +40,25 @@ class BasicStrategy {
     required CardModel dealerUp,
     bool canDouble = true,
     bool canSplit = true,
+    RuleSet rules = RuleSet.sixDeckH17,
   }) {
     final up = upCardValue(dealerUp);
 
     if (canSplit && hand.isPair) {
       final pairValue = hand.cards.first.rank.value;
-      if (_shouldSplit(pairValue, up)) return StrategyMove.split;
+      if (_shouldSplit(pairValue, up, rules)) return StrategyMove.split;
       // A pair we do not split is played on its total — five-five is a ten,
       // not a pair of fives.
     }
 
-    final ideal =
-        hand.isSoft ? _soft(hand.value, up) : _hard(hand.value, up);
-    if (ideal == StrategyMove.double && !canDouble) {
-      return _withoutDouble(hand);
+    final ideal = hand.isSoft
+        ? _soft(hand.value, up, rules)
+        : _hard(hand.value, up, rules);
+
+    if (ideal == StrategyMove.double) {
+      final permitted = canDouble &&
+          rules.allowsDoubleOn(hand.value, isSoft: hand.isSoft);
+      if (!permitted) return _withoutDouble(hand);
     }
     return ideal;
   }
@@ -59,7 +68,7 @@ class BasicStrategy {
 
   // ─── Hard totals ─────────────────────────────────────────────────────────
 
-  static StrategyMove _hard(int total, int up) {
+  static StrategyMove _hard(int total, int up, RuleSet rules) {
     if (total >= 17) return StrategyMove.stand;
     if (total >= 13) {
       // 13–16: stand against a dealer likely to bust, otherwise take the card.
@@ -70,7 +79,11 @@ class BasicStrategy {
       return (up >= 4 && up <= 6) ? StrategyMove.stand : StrategyMove.hit;
     }
     if (total == 11) {
-      // H17 difference: eleven doubles against everything, ace included.
+      // Rule difference: against an ace, eleven doubles when the dealer hits
+      // soft 17 and hits when they stand.
+      if (up == 11) {
+        return rules.dealerHitsSoft17 ? StrategyMove.double : StrategyMove.hit;
+      }
       return StrategyMove.double;
     }
     if (total == 10) {
@@ -84,15 +97,23 @@ class BasicStrategy {
 
   // ─── Soft totals (an ace still counting as eleven) ───────────────────────
 
-  static StrategyMove _soft(int total, int up) {
+  static StrategyMove _soft(int total, int up, RuleSet rules) {
     if (total >= 20) return StrategyMove.stand; // A,9 and A,10
     if (total == 19) {
-      // H17 difference: A,8 doubles against a six.
-      return up == 6 ? StrategyMove.double : StrategyMove.stand;
+      // Rule difference: A,8 doubles against a six only when the dealer hits
+      // soft 17. Otherwise nineteen simply stands.
+      if (up == 6 && rules.dealerHitsSoft17) return StrategyMove.double;
+      return StrategyMove.stand;
     }
     if (total == 18) {
-      // H17 difference: A,7 doubles against a two as well as 3–6.
-      if (up >= 2 && up <= 6) return StrategyMove.double;
+      // Rule difference: A,7 doubles against a two under H17, and stands
+      // against it under S17.
+      if (up == 2) {
+        return rules.dealerHitsSoft17
+            ? StrategyMove.double
+            : StrategyMove.stand;
+      }
+      if (up >= 3 && up <= 6) return StrategyMove.double;
       if (up == 7 || up == 8) return StrategyMove.stand;
       return StrategyMove.hit; // 9, 10, ace — eighteen is not good enough
     }
@@ -110,7 +131,8 @@ class BasicStrategy {
 
   // ─── Pairs (double after split is allowed here) ──────────────────────────
 
-  static bool _shouldSplit(int cardValue, int up) {
+  static bool _shouldSplit(int cardValue, int up, RuleSet rules) {
+    final das = rules.doubleAfterSplit;
     switch (cardValue) {
       case 11: // A,A — always. Two chances at twenty-one beats a soft twelve.
         return true;
@@ -123,14 +145,16 @@ class BasicStrategy {
       case 7:
         return up <= 7;
       case 6:
-        return up <= 6; // 2 included because double-after-split is allowed
+        // Against a two only when doubling after the split is allowed.
+        return das ? up <= 6 : (up >= 3 && up <= 6);
       case 5: // Never. A pair of fives is a ten and wants doubling.
         return false;
       case 4:
-        return up == 5 || up == 6; // only with double-after-split
+        // Only worth splitting when the follow-up double is available.
+        return das && (up == 5 || up == 6);
       case 3:
       case 2:
-        return up <= 7;
+        return das ? up <= 7 : (up >= 4 && up <= 7);
       default:
         return false;
     }

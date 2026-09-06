@@ -4,6 +4,8 @@ import '../../core/audio/sound_service.dart';
 import '../../core/engine/game_engine.dart';
 import '../../core/models/card_model.dart';
 import '../../core/models/game_state.dart';
+import '../../core/rules/rule_set.dart';
+import '../../core/rules/rules_store.dart';
 import '../../core/strategy/basic_strategy.dart';
 import '../../core/strategy/strategy_coach.dart';
 import '../../core/reviews/review_prompter.dart';
@@ -61,12 +63,35 @@ final deckCountProvider = Provider<int>((ref) {
   return ref.watch(shoeModeProvider).numDecks;
 });
 
+/// The table the player is practising against. Changing it re-deals the felt
+/// but never disturbs a live round — see the listener in [TableNotifier.build].
+final rulesProvider = StateProvider<RuleSet>((ref) => RulesStore.current);
+
 final _engineProvider = Provider<GameEngine>((ref) {
   final mode = ref.watch(shoeModeProvider);
-  return GameEngine(numDecks: mode.numDecks, continuous: mode.isContinuous);
+  return GameEngine(
+    numDecks: mode.numDecks,
+    continuous: mode.isContinuous,
+    rules: ref.watch(rulesProvider),
+  );
 });
 
 final showCountProvider = StateProvider<bool>((ref) => true);
+
+/// Whether the table would allow doubling the active hand right now. The
+/// action bar reads this rather than assuming any particular rule.
+final canDoubleProvider = Provider<bool>((ref) {
+  final state = ref.watch(tableProvider);
+  if (state.phase != GamePhase.playerTurn) return false;
+  return ref.watch(_engineProvider).canDoubleActiveHand(state);
+});
+
+/// Whether the table would allow splitting the active hand right now.
+final canSplitProvider = Provider<bool>((ref) {
+  final state = ref.watch(tableProvider);
+  if (state.phase != GamePhase.playerTurn) return false;
+  return ref.watch(_engineProvider).canSplitActiveHand(state);
+});
 
 /// The most recent misplay, shown briefly next to the action bar and cleared
 /// on the next decision.
@@ -80,11 +105,13 @@ final strategyHintProvider = Provider<StrategyMove?>((ref) {
   if (state.dealerHand.cards.isEmpty) return null;
   final hand = state.activeHand;
   if (hand.cards.length < 2) return null;
+  final engine = ref.watch(_engineProvider);
   return BasicStrategy.best(
     hand: hand,
     dealerUp: state.dealerHand.cards.first,
-    canDouble: hand.canDouble && state.bankroll >= hand.bet,
-    canSplit: hand.isPair && state.bankroll >= hand.bet,
+    canDouble: engine.canDoubleActiveHand(state),
+    canSplit: engine.canSplitActiveHand(state),
+    rules: engine.rules,
   );
 });
 
@@ -99,6 +126,12 @@ class TableNotifier extends Notifier<GameState> {
     _engine = ref.read(_engineProvider);
     final spots = ref.read(spotCountProvider);
     ref.listen(shoeModeProvider, (_, __) {
+      _engine = ref.read(_engineProvider);
+      state = _freshBetting(state.bankroll, ref.read(spotCountProvider));
+      _resetSelectors();
+    });
+    // Switching tables starts a fresh shoe under the new rules.
+    ref.listen(rulesProvider, (_, __) {
       _engine = ref.read(_engineProvider);
       state = _freshBetting(state.bankroll, ref.read(spotCountProvider));
       _resetSelectors();
@@ -200,10 +233,9 @@ class TableNotifier extends Notifier<GameState> {
 
   void doubleDown() {
     if (state.phase != GamePhase.playerTurn) return;
-    if (!state.activeHand.canDouble) return;
-    // Doubling stakes one extra base bet for *this* hand only — affordability
-    // is per-hand, not the cumulative total across all hands.
-    if (state.bankroll < state.activeHand.bet) return;
+    // Whether a double is legal — two cards, affordable, permitted by the
+    // table's doubling rule, and allowed after a split — is the rules' call.
+    if (!_engine.canDoubleActiveHand(state)) return;
     _scoreDecision(StrategyMove.double);
     state = _engine.doubleDown(state);
     SoundService.play(Sfx.card);
@@ -212,10 +244,8 @@ class TableNotifier extends Notifier<GameState> {
 
   void split() {
     if (state.phase != GamePhase.playerTurn) return;
-    if (!state.activeHand.isPair) return;
-    // Splitting also stakes exactly one more base bet (so re-splits remain
-    // affordable as long as one more of this hand's bet is left).
-    if (state.bankroll < state.activeHand.bet) return;
+    // Pair, affordable, and within the table's hand limit.
+    if (!_engine.canSplitActiveHand(state)) return;
     _scoreDecision(StrategyMove.split);
     state = _engine.split(state);
     SoundService.play(Sfx.card);
@@ -234,8 +264,9 @@ class TableNotifier extends Notifier<GameState> {
     final best = BasicStrategy.best(
       hand: hand,
       dealerUp: dealer.cards.first,
-      canDouble: hand.canDouble && state.bankroll >= hand.bet,
-      canSplit: hand.isPair && state.bankroll >= hand.bet,
+      canDouble: _engine.canDoubleActiveHand(state),
+      canSplit: _engine.canSplitActiveHand(state),
+      rules: _engine.rules,
     );
     final correct = best == played;
     StrategyCoach.record(correct: correct);

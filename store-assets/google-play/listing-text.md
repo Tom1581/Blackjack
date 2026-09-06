@@ -7,22 +7,20 @@
 
 ## App Name (30 char limit)
 
-**Recommended — 28 chars**
+**Keep the published name — 23 chars**
 
 ```
-Blackjack Card Count Trainer
+Hi-Lo Blackjack Trainer
 ```
 
-Covers the three query families at once: *blackjack*, *card count(ing)*,
-*trainer*. Drops "Hi-Lo" from the title, which is a niche term people search
-far less than "card counting" — it stays prominent in the short description
-and the first line of the body.
+It already carries the two highest-value terms, *Blackjack* and *Trainer*, and
+"Hi-Lo" makes it distinctive where a generic "Blackjack Card Count Trainer"
+would not be. It is also the name attached to the existing listing, reviews and
+installs, so changing it throws away what little recognition exists for no
+keyword gain.
 
-**Alternative — 29 chars**, if you want to keep the Hi-Lo brand up front:
-
-```
-Hi-Lo: Blackjack Card Counter
-```
+**"Card counting" belongs in the short description and the opening sentence
+instead** — both are indexed, both are read, and neither costs the name.
 
 ## Short Description (80 char limit)
 
@@ -39,9 +37,9 @@ nothing else in this category has.
 ## Full Description (4000 char limit)
 
 ```
-Learn to count cards. Hi-Lo Blackjack Trainer is a practice table built for
-players who want to drill card counting and basic strategy until both are
-automatic — then test them against friends in real time.
+Card counting, taught properly. Hi-Lo Blackjack Trainer is a practice table
+built for players who want to drill card counting and basic strategy until both
+are automatic — then test them against friends in real time.
 
 A built-in coach scores every decision you make against basic strategy and
 tells you when a play was wrong — "16 vs 5, basic strategy says Stand" — so
@@ -52,17 +50,25 @@ turn favorable and learn what to do about it. Play a hand, size your bet,
 and watch how penetration changes the edge.
 
 PLAY ONLINE WITH FRIENDS
-Host a table and share a five-character room code, or open the lobby and join
-a table someone else has already started. Up to five players share one dealer
+Host a private table and share its room code, or open the lobby and join a
+table someone else has already started. Up to five players share one dealer
 and one shoe, with the running count on screen for everyone — so you can
 practice counting on a live table instead of alone.
+
+CHOOSE YOUR TABLE
+Strategy is not universal — the correct play changes with the house rules. Pick
+the table you are practising for and both the dealer and the coach follow it:
+- Dealer hits or stands on soft 17
+- Double after split, or not
+- Doubling on any two cards, or only on 9-11
+- 3:2 or 6:5 blackjack, so you can see exactly what a 6:5 table costs you
 
 BASIC STRATEGY COACH
 - Every hit, stand, double and split is scored against the correct play
 - The recommended move is highlighted while you learn, and can be switched off
 - A running accuracy score, so you can see yourself improving
-- The chart is built for THIS table's rules: six decks, dealer hits soft 17,
-  double after split. Most charts you find online are for a different game.
+- The chart is recalculated for whichever table you select, not copied from
+  one game. Most charts you find online are for a different rule set.
 
 CARD COUNTING
 - Hi-Lo running count and true count, live as cards are dealt
@@ -100,9 +106,10 @@ New: a basic strategy coach.
 - Your accuracy is tracked so you can watch yourself improve
 
 Also new:
-- Play online with friends: open lobby, up to 5 players per table
+- Choose your table rules — the chart is recalculated to match
+- Play online with friends, up to 5 players per table
 - Weekly leaderboard against real players
-- Split and insurance online, sound effects, daily bonus
+- Sound effects, daily bonus, and a quick intro
 ```
 
 ## Notes for whoever edits this next

@@ -1,4 +1,5 @@
 import '../models/card_model.dart';
+import '../rules/rule_set.dart';
 import '../models/game_state.dart';
 import '../models/hand_model.dart';
 import 'deck_manager.dart';
@@ -15,9 +16,39 @@ class GameEngine {
   /// machine). Card counting provides no edge in this mode.
   final bool continuous;
 
-  GameEngine({int numDecks = 6, this.continuous = false})
-      : _deck = DeckManager(numDecks: numDecks),
+  /// The table's rules. Everything the house decides — the soft-17 rule, what
+  /// a natural pays, how far you may split, what you may double — comes from
+  /// here rather than being baked into the engine.
+  final RuleSet rules;
+
+  GameEngine({
+    int numDecks = 6,
+    this.continuous = false,
+    this.rules = RuleSet.sixDeckH17,
+  })  : _deck = DeckManager(numDecks: numDecks),
         _counter = HiLoCounter(totalDecks: numDecks);
+
+  /// Whether the active hand may be doubled at this table right now.
+  bool canDoubleActiveHand(GameState state) {
+    final hand = state.activeHand;
+    if (!hand.canDouble) return false;
+    if (hand.fromSplit && !rules.doubleAfterSplit) return false;
+    if (!rules.allowsDoubleOn(hand.value, isSoft: hand.isSoft)) return false;
+    return state.bankroll >= hand.bet;
+  }
+
+  /// Whether the active hand may be split at this table right now.
+  bool canSplitActiveHand(GameState state) {
+    final hand = state.activeHand;
+    if (!hand.isPair) return false;
+    if (state.playerHands.length >= rules.maxSplitHands) return false;
+    if (hand.fromSplit &&
+        hand.cards.first.rank == Rank.ace &&
+        !rules.resplitAces) {
+      return false;
+    }
+    return state.bankroll >= hand.bet;
+  }
 
   int get numDecks => _deck.numDecks;
 
@@ -235,7 +266,9 @@ class GameEngine {
   /// Whether the dealer is required to take another card. Dealer hits soft 17.
   bool dealerShouldHit(GameState state) {
     final d = state.dealerHand;
-    return d.value < 17 || (d.isSoft && d.value == 17);
+    // Soft seventeen is the table's call, not the engine's.
+    return d.value < 17 ||
+        (rules.dealerHitsSoft17 && d.isSoft && d.value == 17);
   }
 
   /// Draw one additional card for the dealer.
@@ -389,7 +422,7 @@ class GameEngine {
   int _payout(GameResult result, int bet) {
     switch (result) {
       case GameResult.blackjack:
-        return bet + (bet * 1.5).toInt();
+        return bet + (bet * rules.blackjackPayout).toInt();
       case GameResult.win:
       case GameResult.dealerBust:
         return bet * 2;

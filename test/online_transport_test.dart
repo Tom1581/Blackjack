@@ -53,6 +53,23 @@ void main() {
       expect(got.senderId, 'guest-9');
     });
 
+    test('a database Broadcast wrapper still exposes the game envelope', () {
+      final sent = SupabaseTransport.encodeEnvelope(
+        'memberJoined',
+        {'name': 'Bo'},
+        'guest-9',
+      );
+      final got = SupabaseTransport.decodeEnvelope({
+        'id': 'database-message-id',
+        'data': sent,
+      });
+
+      expect(got, isNotNull);
+      expect(got!.event, 'memberJoined');
+      expect(got.senderId, 'guest-9');
+      expect(got.payload['name'], 'Bo');
+    });
+
     test('a foreign or unlabelled broadcast is ignored, not misread', () {
       expect(
         SupabaseTransport.decodeEnvelope(

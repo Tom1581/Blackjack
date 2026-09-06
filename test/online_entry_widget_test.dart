@@ -150,16 +150,17 @@ void main() {
     await pumpEntry(tester);
 
     expect(
-      find.text('Listed in the lobby — anyone can join'),
+      find.text('Invite only — friends with the code'),
       findsOneWidget,
-      reason: 'public by default, so a new table is findable',
+      reason: 'invite-only by default: the host deals, so strangers are '
+          'something you opt into, not something you land in',
     );
 
     await tester.tap(find.byType(Switch));
     await tester.pump();
 
     expect(
-      find.text('Invite only — reachable by room code'),
+      find.text('Listed in the lobby — anyone can join'),
       findsOneWidget,
     );
   });
@@ -172,6 +173,25 @@ void main() {
     expect(find.text('JOIN WITH A CODE'), findsOneWidget);
     expect(find.text('CREATE A TABLE'), findsOneWidget);
     expect(find.text('JOIN TABLE'), findsOneWidget);
+  });
+
+  testWidgets('a player can enter a twelve-character display name',
+      (tester) async {
+    await pumpEntry(tester);
+
+    final nameField = find.byType(TextField).first;
+    await tester.enterText(nameField, 'Test Host');
+    await tester.pump();
+
+    expect(tester.widget<TextField>(nameField).controller!.text, 'Test Host');
+
+    // The UI guard mirrors the database's 1–12 character rule, so a name
+    // cannot reach a create/join request that the service will reject.
+    await tester.enterText(nameField, 'abcdefghijklmnop');
+    await tester.pump();
+    expect(
+        tester.widget<TextField>(nameField).controller!.text, 'abcdefghijkl');
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('a backend that is down offers a retry, not a dead end',

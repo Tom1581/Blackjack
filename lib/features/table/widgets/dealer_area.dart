@@ -6,7 +6,9 @@ import '../table_provider.dart';
 import 'card_widget.dart';
 
 class DealerArea extends ConsumerWidget {
-  const DealerArea({super.key});
+  final bool compact;
+
+  const DealerArea({super.key, this.compact = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -17,6 +19,8 @@ class DealerArea extends ConsumerWidget {
 
     final displayValue = isResult ? dealer.revealAll().value : dealer.value;
     final isBust = isResult && dealer.isBust;
+    final cardWidth = compact ? 60.0 : 72.0;
+    final cardHeight = cardWidth * 1.4;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -38,13 +42,13 @@ class DealerArea extends ConsumerWidget {
               fontWeight: FontWeight.w700,
             ),
           ),
-        const SizedBox(height: 8),
+        SizedBox(height: compact ? 6 : 8),
 
         // Card row
         SizedBox(
-          height: 108,
+          height: cardHeight,
           child: cards.isEmpty
-              ? _emptyRow()
+              ? _emptyRow(cardWidth)
               : SingleChildScrollView(
                   scrollDirection: Axis.horizontal,
                   child: Row(
@@ -52,9 +56,9 @@ class DealerArea extends ConsumerWidget {
                     children: [
                       for (int i = 0; i < cards.length; i++)
                         Padding(
-                          padding: EdgeInsets.only(
-                              left: i == 0 ? 0 : 6, right: 0),
-                          child: CardWidget(card: cards[i]),
+                          padding:
+                              EdgeInsets.only(left: i == 0 ? 0 : 6, right: 0),
+                          child: CardWidget(card: cards[i], width: cardWidth),
                         ),
                     ],
                   ),
@@ -64,13 +68,13 @@ class DealerArea extends ConsumerWidget {
     );
   }
 
-  Widget _emptyRow() {
+  Widget _emptyRow(double cardWidth) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        CardWidget(card: null, width: 72),
+        CardWidget(card: null, width: cardWidth),
         const SizedBox(width: 8),
-        CardWidget(card: null, width: 72),
+        CardWidget(card: null, width: cardWidth),
       ],
     );
   }

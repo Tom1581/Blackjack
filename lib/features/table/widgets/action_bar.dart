@@ -11,12 +11,11 @@ class ActionBar extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final state = ref.watch(tableProvider);
     final n = ref.read(tableProvider.notifier);
-    final hand = state.activeHand;
-    // Both split and double stake exactly one more base bet for the active
-    // hand — its own wager, independent of how many other hands are in play.
-    final canAffordExtraBaseBet = state.bankroll >= hand.bet;
+    // What this table actually permits: two cards, affordable, within the
+    // doubling rule, after a split, and inside the hand limit.
+    final canDouble = ref.watch(canDoubleProvider);
+    final canSplit = ref.watch(canSplitProvider);
     // The coach's recommendation, when the player has asked to see it.
     final hint =
         StrategyCoach.hintsEnabled ? ref.watch(strategyHintProvider) : null;
@@ -56,7 +55,7 @@ class ActionBar extends ConsumerWidget {
             icon: Icons.call_split,
             color: AppColors.btnSplit,
             accentColor: const Color(0xFFFFBB55),
-            enabled: hand.isPair && canAffordExtraBaseBet,
+            enabled: canSplit,
             onTap: () {
               HapticFeedback.heavyImpact();
               n.split();
@@ -69,7 +68,7 @@ class ActionBar extends ConsumerWidget {
             icon: Icons.add_circle_outline,
             color: AppColors.btnDouble,
             accentColor: const Color(0xFF5599FF),
-            enabled: hand.canDouble && canAffordExtraBaseBet,
+            enabled: canDouble,
             onTap: () {
               HapticFeedback.heavyImpact();
               n.doubleDown();

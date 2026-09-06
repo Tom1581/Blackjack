@@ -115,7 +115,15 @@ class SupabaseBoardBackend implements BoardBackend {
 
   @override
   Future<void> submit(Map<String, dynamic> row) async {
-    await client.from(table).upsert(row);
+    // Direct table writes are deliberately revoked. The database function
+    // enforces the current week, a monotonic hand count, and plausible score
+    // changes before it updates this authenticated user's row.
+    await client.rpc('submit_weekly_ranking', params: {
+      'p_week_key': row['week_key'],
+      'p_display_name': row['display_name'],
+      'p_profit': row['profit'],
+      'p_hands_played': row['hands_played'],
+    });
   }
 
   @override

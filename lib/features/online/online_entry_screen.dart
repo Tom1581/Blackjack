@@ -34,7 +34,12 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
 
   /// Whether a table this player hosts is advertised in the lobby, or is
   /// invite-only by room code.
-  bool _listPublicly = true;
+  ///
+  /// Defaults to invite-only. The host device deals, and on the real transport
+  /// a modified client can still claim to be another player, so a table of
+  /// strangers is not something to opt people into by accident. Listing
+  /// publicly stays one tap away.
+  bool _listPublicly = false;
 
   /// A reconnect attempt is in flight after the backend failed to come up.
   bool _retrying = false;
@@ -48,9 +53,18 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
   Future<void> _bootstrap() async {
     final id = await loadOrCreatePlayerId();
     final name = await loadPlayerName();
+    var authenticatedId = id;
+    // Browsing uses the same private Realtime authorization as a table. A
+    // test transport has no live Supabase client, so retain the local id when
+    // this best-effort sign-in cannot run in a hermetic widget test.
+    if (AppSupabase.isReady) {
+      try {
+        authenticatedId = await ref.read(onlineRoomAccessProvider).identify();
+      } catch (_) {}
+    }
     if (!mounted) return;
     setState(() {
-      _playerId = id;
+      _playerId = authenticatedId;
       if (name.isNotEmpty) _nameCtrl.text = name;
     });
     _startBrowsing();
@@ -102,6 +116,30 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
       _error = null;
     });
     await savePlayerName(_name);
+    try {
+      final access = ref.read(onlineRoomAccessProvider);
+      final authenticatedId = await access.identify();
+      if (host) {
+        await access.create(
+          roomCode: roomCode,
+          displayName: _name,
+          listed: _listPublicly,
+        );
+      } else {
+        await access.join(roomCode: roomCode, displayName: _name);
+      }
+      _playerId = authenticatedId;
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _error = host
+              ? 'Could not create this table. Please try again.'
+              : 'That table is unavailable or full.';
+        });
+      }
+      return;
+    }
     // Browsing and playing do not need to happen at once — drop the lobby
     // connection while at the table and pick it back up on the way out.
     await _stopBrowsing();
@@ -172,53 +210,53 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
                     if (!AppSupabase.isReady)
                       Expanded(child: _offlinePanel())
                     else
-                    Expanded(
-                      child: SingleChildScrollView(
-                        physics: const BouncingScrollPhysics(),
-                        padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: [
-                            const _Hero(),
-                            const SizedBox(height: 18),
-                            _label('YOUR NAME'),
-                            const SizedBox(height: 6),
-                            TextField(
-                              controller: _nameCtrl,
-                              maxLength: 12,
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontWeight: FontWeight.w700,
+                      Expanded(
+                        child: SingleChildScrollView(
+                          physics: const BouncingScrollPhysics(),
+                          padding: const EdgeInsets.fromLTRB(22, 8, 22, 24),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const _Hero(),
+                              const SizedBox(height: 18),
+                              _label('YOUR NAME'),
+                              const SizedBox(height: 6),
+                              TextField(
+                                controller: _nameCtrl,
+                                maxLength: 12,
+                                style: const TextStyle(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                                decoration: _fieldDecoration('e.g. Alex'),
+                                textInputAction: TextInputAction.done,
                               ),
-                              decoration: _fieldDecoration('e.g. Alex'),
-                              textInputAction: TextInputAction.done,
-                            ),
-                            if (_error != null)
-                              Padding(
-                                padding: const EdgeInsets.only(bottom: 4),
-                                child: Text(
-                                  _error!,
-                                  style: const TextStyle(
-                                    color: AppColors.unfavorable,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w700,
+                              if (_error != null)
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 4),
+                                  child: Text(
+                                    _error!,
+                                    style: const TextStyle(
+                                      color: AppColors.unfavorable,
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
                                 ),
-                              ),
-                            const SizedBox(height: 14),
-                            _openTablesPanel(),
-                            const SizedBox(height: 16),
-                            _orRow(),
-                            const SizedBox(height: 16),
-                            _createPanel(),
-                            const SizedBox(height: 16),
-                            _orRow(),
-                            const SizedBox(height: 16),
-                            _joinPanel(),
-                          ],
+                              const SizedBox(height: 14),
+                              _openTablesPanel(),
+                              const SizedBox(height: 16),
+                              _orRow(),
+                              const SizedBox(height: 16),
+                              _createPanel(),
+                              const SizedBox(height: 16),
+                              _orRow(),
+                              const SizedBox(height: 16),
+                              _joinPanel(),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
         ),
@@ -348,9 +386,7 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
               const Spacer(),
               if (tables != null)
                 Text(
-                  tables.isEmpty
-                      ? 'none yet'
-                      : '${tables.length} live',
+                  tables.isEmpty ? 'none yet' : '${tables.length} live',
                   style: TextStyle(
                     color: AppColors.gold.withValues(alpha: 0.8),
                     fontSize: 11,
@@ -367,7 +403,7 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
               'Nobody is hosting right now. Start a table below and it will '
               'show up here for everyone else.',
               style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.55),
+                color: Colors.white.withValues(alpha: 0.72),
                 fontSize: 12,
                 height: 1.4,
               ),
@@ -387,7 +423,7 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
                   '+${tables.length - maxRows} more open — join by code, or '
                   'start your own.',
                   style: TextStyle(
-                    color: Colors.white.withValues(alpha: 0.45),
+                    color: Colors.white.withValues(alpha: 0.65),
                     fontSize: 11.5,
                   ),
                 ),
@@ -452,7 +488,7 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
                   child: Text(
                     _listPublicly
                         ? 'Listed in the lobby — anyone can join'
-                        : 'Invite only — reachable by room code',
+                        : 'Invite only — friends with the code',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.7),
                       fontSize: 12,
@@ -579,7 +615,7 @@ class _OnlineEntryScreenState extends ConsumerState<OnlineEntryScreen> {
   InputDecoration _fieldDecoration(String hint) => InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(
-            color: Colors.white.withValues(alpha: 0.3),
+            color: Colors.white.withValues(alpha: 0.55),
             fontWeight: FontWeight.w600,
             letterSpacing: 0),
         counterText: '',
@@ -757,7 +793,8 @@ class _TableRow extends StatelessWidget {
                     const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                 decoration: BoxDecoration(
                   borderRadius: BorderRadius.circular(20),
-                  border: Border.all(color: Colors.white.withValues(alpha: 0.25)),
+                  border:
+                      Border.all(color: Colors.white.withValues(alpha: 0.25)),
                 ),
                 child: Text(
                   'FULL',
@@ -820,7 +857,7 @@ class _LobbyLoading extends StatelessWidget {
         Text(
           'Looking for open tables…',
           style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.55),
+            color: Colors.white.withValues(alpha: 0.7),
             fontSize: 12,
             fontWeight: FontWeight.w600,
           ),
@@ -849,7 +886,11 @@ class _GoldButton extends StatelessWidget {
               ? const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xFFFFE680), AppColors.gold, Color(0xFFB8860B)],
+                  colors: [
+                    Color(0xFFFFE680),
+                    AppColors.gold,
+                    Color(0xFFB8860B)
+                  ],
                 )
               : null,
           color: enabled ? null : AppColors.goldDim.withValues(alpha: 0.4),

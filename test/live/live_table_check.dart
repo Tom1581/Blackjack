@@ -16,6 +16,7 @@ import 'package:supabase/supabase.dart';
 import 'package:blackjack_app/core/supabase/supabase_config.dart';
 import 'package:blackjack_app/features/online/lobby/table_directory.dart';
 import 'package:blackjack_app/features/online/online_controller.dart';
+import 'package:blackjack_app/features/online/online_room_access.dart';
 import 'package:blackjack_app/features/online/online_state.dart';
 import 'package:blackjack_app/features/online/transport/supabase_transport.dart';
 
@@ -39,7 +40,7 @@ void main() {
     final rng = Random();
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     final room =
-        List.generate(5, (_) => alphabet[rng.nextInt(alphabet.length)]).join();
+        List.generate(10, (_) => alphabet[rng.nextInt(alphabet.length)]).join();
     // ignore: avoid_print
     print('LIVE room code: $room');
 
@@ -47,8 +48,22 @@ void main() {
       for (var i = 0; i < 3; i++)
         SupabaseClient(SupabaseConfig.url, SupabaseConfig.publishableKey),
     ];
-    final names = ['Ann', 'Bo', 'Cy'];
-    final ids = ['live_host', 'live_g1', 'live_g2'];
+    // The host uses the full 12-character UI limit and a space, proving that
+    // normal display names travel through room admission and Realtime intact.
+    final names = ['Host Player1', 'Guest Two', 'Guest Three'];
+    final access = [for (final client in clients) OnlineRoomAccess(client)];
+    final ids = <String>[];
+    for (final clientAccess in access) {
+      ids.add(await clientAccess.identify());
+    }
+
+    // The same path the app uses: authenticate, create the room, then admit
+    // each guest before that guest opens its private Realtime channel.
+    await access.first.create(
+      roomCode: room,
+      displayName: names.first,
+      listed: false,
+    );
 
     final players = <OnlineController>[];
     for (var i = 0; i < 3; i++) {
@@ -60,27 +75,40 @@ void main() {
       ));
     }
     final host = players.first;
+    final hostMessages = <String>[];
+    final hostMessageSub = host.transport.messages.listen((message) {
+      hostMessages.add('${message.event} from ${message.senderId}');
+    });
 
     try {
       // ── Everyone joins the same room code ──────────────────────────────
       await host.start();
       await Future<void>.delayed(const Duration(seconds: 2)); // probe window
-      for (final g in players.skip(1)) {
-        await g.start();
+      for (var i = 1; i < players.length; i++) {
+        await access[i].join(roomCode: room, displayName: names[i]);
+        await players[i].start();
       }
 
-      await waitFor('all three seated on the host', () {
-        return host.table != null && host.table!.seats.length == 3;
-      });
+      try {
+        await waitFor('all three seated on the host', () {
+          return host.table != null && host.table!.seats.length == 3;
+        });
+      } catch (_) {
+        // ignore: avoid_print
+        print(
+            'host events: $hostMessages; conn=${host.conn}; error=${host.error}');
+        rethrow;
+      }
       // ignore: avoid_print
-      print('seated on host: ${host.table!.seats.map((s) => s.name).join(', ')}');
+      print(
+          'seated on host: ${host.table!.seats.map((s) => s.name).join(', ')}');
 
       await waitFor('all three clients rendering all three seats', () {
         return players.every((p) => p.table?.seats.length == 3);
       });
       for (final p in players) {
         expect(p.mySeat, isNotNull, reason: '${p.playerName} has a seat');
-        expect(p.table!.hostId, 'live_host');
+        expect(p.table!.hostId, ids.first);
       }
 
       // ── Bets, from three different devices ─────────────────────────────
@@ -176,6 +204,7 @@ void main() {
       // ignore: avoid_print
       print('LIVE_SHARED_TABLE_OK — three clients, one table, one result');
     } finally {
+      await hostMessageSub.cancel();
       for (final p in players) {
         p.dispose();
       }
@@ -191,7 +220,7 @@ void main() {
     final rng = Random();
     const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
     String code() =>
-        List.generate(5, (_) => alphabet[rng.nextInt(alphabet.length)]).join();
+        List.generate(10, (_) => alphabet[rng.nextInt(alphabet.length)]).join();
 
     final codeA = code();
     final codeB = code();
@@ -203,9 +232,15 @@ void main() {
         SupabaseClient(SupabaseConfig.url, SupabaseConfig.publishableKey),
     ];
 
-    final hostA = LobbyAnnouncer(SupabaseTransport(clients[0], 'lobby_a'));
-    final hostB = LobbyAnnouncer(SupabaseTransport(clients[1], 'lobby_b'));
-    final watcher = LobbyBrowser(SupabaseTransport(clients[2], 'lobby_w'));
+    final access = [for (final client in clients) OnlineRoomAccess(client)];
+    final ids = <String>[];
+    for (final clientAccess in access) {
+      ids.add(await clientAccess.identify());
+    }
+
+    final hostA = LobbyAnnouncer(SupabaseTransport(clients[0], ids[0]));
+    final hostB = LobbyAnnouncer(SupabaseTransport(clients[1], ids[1]));
+    final watcher = LobbyBrowser(SupabaseTransport(clients[2], ids[2]));
 
     try {
       await watcher.start();

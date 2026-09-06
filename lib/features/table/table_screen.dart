@@ -23,6 +23,10 @@ class TableScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(tableProvider);
     final notifier = ref.read(tableProvider.notifier);
+    // A short landscape phone or the default desktop window has less vertical
+    // room than a full-height phone. Keep the whole table usable there rather
+    // than letting the fixed-size card rows push into the chip tray.
+    final compactLayout = MediaQuery.sizeOf(context).height < 700;
 
     return Scaffold(
       backgroundColor: AppColors.table,
@@ -38,10 +42,16 @@ class TableScreen extends ConsumerWidget {
                 Expanded(
                   child: Column(
                     children: [
-                      const Flexible(flex: 5, child: DealerArea()),
-                      const _FeltBanner(),
-                      const _TableChips(),
-                      const Flexible(flex: 6, child: PlayerArea()),
+                      Flexible(
+                        flex: 5,
+                        child: DealerArea(compact: compactLayout),
+                      ),
+                      _FeltBanner(compact: compactLayout),
+                      _TableChips(compact: compactLayout),
+                      Flexible(
+                        flex: 6,
+                        child: PlayerArea(compact: compactLayout),
+                      ),
                     ],
                   ),
                 ),
@@ -57,11 +67,9 @@ class TableScreen extends ConsumerWidget {
                 ),
               ],
             ),
-
             if (state.insuranceState == InsuranceState.offered)
               const InsurancePrompt(),
-            if (state.phase == GamePhase.result)
-              const ResultOverlay(),
+            if (state.phase == GamePhase.result) const ResultOverlay(),
             if (state.phase == GamePhase.betting &&
                 state.bankroll < _minChipValue)
               const BrokeModal(),
@@ -112,7 +120,8 @@ class _TopRail extends ConsumerWidget {
         children: [
           GestureDetector(
             onTap: () => Navigator.of(context).pop(),
-            child: const Icon(Icons.arrow_back_ios, color: AppColors.gold, size: 20),
+            child: const Icon(Icons.arrow_back_ios,
+                color: AppColors.gold, size: 20),
           ),
           const SizedBox(width: 10),
           const CountHud(),
@@ -177,30 +186,32 @@ class _BankrollPill extends StatelessWidget {
 }
 
 class _FeltBanner extends StatelessWidget {
-  const _FeltBanner();
+  final bool compact;
+
+  const _FeltBanner({this.compact = false});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 6),
+      padding: EdgeInsets.symmetric(vertical: compact ? 2 : 6),
       child: Column(
         children: [
           Text(
             'BLACKJACK  PAYS  3  TO  2',
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.18),
-              fontSize: 9,
+              color: Colors.white.withValues(alpha: 0.7),
+              fontSize: 10,
               fontWeight: FontWeight.w700,
-              letterSpacing: 3,
+              letterSpacing: 1.5,
             ),
           ),
           const SizedBox(height: 2),
           Text(
             'Dealer Must Hit on Soft 17   •   Insurance Pays 2 to 1',
             style: TextStyle(
-              color: Colors.white.withValues(alpha: 0.12),
-              fontSize: 7.5,
-              letterSpacing: 0.8,
+              color: Colors.white.withValues(alpha: 0.52),
+              fontSize: 8.5,
+              letterSpacing: 0.35,
             ),
           ),
         ],
@@ -213,7 +224,9 @@ class _FeltBanner extends StatelessWidget {
 /// for the dealer-bust side bet. Always visible so the player can see *where*
 /// their chips will land. Tap a circle to make it the active bet target.
 class _TableChips extends ConsumerWidget {
-  const _TableChips();
+  final bool compact;
+
+  const _TableChips({this.compact = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -226,12 +239,14 @@ class _TableChips extends ConsumerWidget {
     final count = spotBets.length;
     final canTap = phase == GamePhase.betting;
     // Shrink the circles as more spots share the felt width.
-    final mainSize = count >= 3
+    final normalMainSize = count >= 3
         ? 78.0
         : count == 2
             ? 88.0
             : 96.0;
-    final mainChip = count >= 3 ? 17.0 : 20.0;
+    final mainSize = compact ? normalMainSize * 0.78 : normalMainSize;
+    final mainChip =
+        compact ? (count >= 3 ? 13.0 : 16.0) : (count >= 3 ? 17.0 : 20.0);
 
     List<Widget> circles = [
       for (var i = 0; i < count; i++)
@@ -254,9 +269,9 @@ class _TableChips extends ConsumerWidget {
     ];
 
     return Padding(
-      padding: const EdgeInsets.only(top: 4, bottom: 2),
+      padding: EdgeInsets.only(top: compact ? 0 : 4, bottom: compact ? 0 : 2),
       child: SizedBox(
-        height: 132,
+        height: compact ? 104 : 132,
         child: Center(
           child: FittedBox(
             fit: BoxFit.scaleDown,
@@ -270,14 +285,14 @@ class _TableChips extends ConsumerWidget {
                 ],
                 // Side bet circle — smaller "bonus" spot on the right.
                 Padding(
-                  padding: const EdgeInsets.only(top: 6),
+                  padding: EdgeInsets.only(top: compact ? 4 : 6),
                   child: _BettingCircle(
                     amount: sideBet,
-                    size: 58,
+                    size: compact ? 46 : 58,
                     emptyLabel: 'BUST',
                     bottomLabel: 'SIDE',
                     borderColor: AppColors.unfavorable,
-                    chipSize: 16,
+                    chipSize: compact ? 13 : 16,
                     maxVisibleChips: 3,
                     isActive: target == BetTarget.side,
                     canTap: canTap,

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:blackjack_app/core/models/card_model.dart';
 import 'package:blackjack_app/core/models/hand_model.dart';
+import 'package:blackjack_app/core/rules/rule_set.dart';
 import 'package:blackjack_app/core/strategy/basic_strategy.dart';
 
 /// Dealer up-cards in chart order.
@@ -57,7 +58,12 @@ List<String> _row(String cells) =>
 /// Notation is the one printed on a real strategy card:
 ///   H = hit, S = stand, D = double (hit if you cannot), P = split,
 ///   Ds = double (STAND if you cannot).
-void expectRow(String label, HandModel hand, String cells) {
+void expectRow(
+  String label,
+  HandModel hand,
+  String cells, {
+  RuleSet rules = RuleSet.sixDeckH17,
+}) {
   final expected = _row(cells);
   expect(expected.length, 10, reason: '$label: chart row must have 10 cells');
 
@@ -71,6 +77,7 @@ void expectRow(String label, HandModel hand, String cells) {
       dealerUp: up,
       canDouble: canDouble,
       canSplit: hand.isPair,
+      rules: rules,
     );
 
     final want = switch (cell) {
@@ -90,6 +97,7 @@ void expectRow(String label, HandModel hand, String cells) {
         dealerUp: up,
         canDouble: false,
         canSplit: hand.isPair,
+        rules: rules,
       );
       expect(
         blocked,
@@ -273,6 +281,234 @@ void main() {
             hand: soft18, dealerUp: _d(Rank.five), canDouble: false),
         StrategyMove.stand,
       );
+    });
+  });
+
+  // ── Other rule sets get their own chart, cell by cell ──────────────────
+
+  group('6-Deck S17 — the three cells that differ, and nothing else', () {
+    const rules = RuleSet.sixDeckS17;
+
+    test('hard 11 hits against an ace instead of doubling', () {
+      expectRow('hard 11 (S17)', _hardHands[11]!,
+          'D   D   D   D   D   D   D   D   D   H', rules: rules);
+    });
+
+    test('soft 18 stands against a two instead of doubling', () {
+      expectRow('A,7 (S17)', _softHand(Rank.seven),
+          'S   Ds  Ds  Ds  Ds  S   S   H   H   H', rules: rules);
+    });
+
+    test('soft 19 always stands', () {
+      expectRow('A,8 (S17)', _softHand(Rank.eight),
+          'S   S   S   S   S   S   S   S   S   S', rules: rules);
+    });
+
+    test('every other row is identical to the H17 chart', () {
+      final hands = <String, HandModel>{
+        for (final e in _hardHands.entries)
+          if (e.key != 11) 'hard ${e.key}': e.value,
+        for (final r in [
+          Rank.two,
+          Rank.three,
+          Rank.four,
+          Rank.five,
+          Rank.six,
+          Rank.nine,
+        ])
+          'A,${r.display}': _softHand(r),
+        for (final r in Rank.values) '${r.display} pair': _pair(r),
+      };
+
+      hands.forEach((label, hand) {
+        for (final up in _upCards) {
+          final h17 = BasicStrategy.best(
+            hand: hand,
+            dealerUp: up,
+            canDouble: hand.cards.length == 2,
+            canSplit: hand.isPair,
+          );
+          final s17 = BasicStrategy.best(
+            hand: hand,
+            dealerUp: up,
+            canDouble: hand.cards.length == 2,
+            canSplit: hand.isPair,
+            rules: rules,
+          );
+          expect(s17, h17, reason: '$label vs ${up.rank.display}');
+        }
+      });
+    });
+  });
+
+  group('No double after split — splitting gets stingier', () {
+    const rules = RuleSet.sixDeckNoDas;
+    const chart = {
+      Rank.two:   'H   H   P   P   P   P   H   H   H   H',
+      Rank.three: 'H   H   P   P   P   P   H   H   H   H',
+      Rank.four:  'H   H   H   H   H   H   H   H   H   H',
+      Rank.six:   'H   P   P   P   P   H   H   H   H   H',
+    };
+
+    chart.forEach((rank, cells) {
+      test('${rank.display},${rank.display} without DAS', () {
+        expectRow('${rank.display},${rank.display}', _pair(rank), cells,
+            rules: rules);
+      });
+    });
+
+    test('the pairs DAS does not affect are unchanged', () {
+      for (final rank in [
+        Rank.ace,
+        Rank.ten,
+        Rank.nine,
+        Rank.eight,
+        Rank.seven,
+        Rank.five,
+      ]) {
+        for (final up in _upCards) {
+          final withDas = BasicStrategy.best(
+            hand: _pair(rank),
+            dealerUp: up,
+            canSplit: true,
+          );
+          final without = BasicStrategy.best(
+            hand: _pair(rank),
+            dealerUp: up,
+            canSplit: true,
+            rules: rules,
+          );
+          expect(without, withDas,
+              reason: '${rank.display},${rank.display} vs ${up.rank.display}');
+        }
+      }
+    });
+  });
+
+  group('Hard 9–11 doubles only — every soft double disappears', () {
+    const rules = RuleSet.restrictedDouble;
+
+    test('the hard doubles that are still allowed survive', () {
+      expectRow('hard 9', _hardHands[9]!,
+          'H   D   D   D   D   H   H   H   H   H', rules: rules);
+      expectRow('hard 10', _hardHands[10]!,
+          'D   D   D   D   D   D   D   D   H   H', rules: rules);
+      expectRow('hard 11', _hardHands[11]!,
+          'D   D   D   D   D   D   D   D   D   D', rules: rules);
+    });
+
+    test('soft doubles become hits', () {
+      for (final rank in [
+        Rank.two,
+        Rank.three,
+        Rank.four,
+        Rank.five,
+        Rank.six,
+      ]) {
+        expectRow('A,${rank.display}', _softHand(rank),
+            'H   H   H   H   H   H   H   H   H   H', rules: rules);
+      }
+    });
+
+    test('soft 18 and 19 stand rather than hit, as "Ds" requires', () {
+      expectRow('A,7', _softHand(Rank.seven),
+          'S   S   S   S   S   S   S   H   H   H', rules: rules);
+      expectRow('A,8', _softHand(Rank.eight),
+          'S   S   S   S   S   S   S   S   S   S', rules: rules);
+    });
+
+    test('a pair of fives still doubles — it is a hard ten', () {
+      expectRow('5,5', _pair(Rank.five),
+          'D   D   D   D   D   D   D   D   H   H', rules: rules);
+    });
+
+    test('the ten-and-eleven rule is stricter still', () {
+      const stricter = RuleSet(
+        id: 'test_10_11',
+        name: 'test',
+        blurb: 'test',
+        doubleRule: DoubleRule.tenAndEleven,
+      );
+      expectRow('hard 9', _hardHands[9]!,
+          'H   H   H   H   H   H   H   H   H   H', rules: stricter);
+      expectRow('hard 10', _hardHands[10]!,
+          'D   D   D   D   D   D   D   D   H   H', rules: stricter);
+    });
+  });
+
+  group('6:5 blackjack changes the payout, not the play', () {
+    test('every decision is identical to the 3:2 game', () {
+      final hands = <HandModel>[
+        ..._hardHands.values,
+        for (final r in [
+          Rank.two,
+          Rank.three,
+          Rank.four,
+          Rank.five,
+          Rank.six,
+          Rank.seven,
+          Rank.eight,
+          Rank.nine,
+        ])
+          _softHand(r),
+        for (final r in Rank.values) _pair(r),
+      ];
+      for (final hand in hands) {
+        for (final up in _upCards) {
+          expect(
+            BasicStrategy.best(
+              hand: hand,
+              dealerUp: up,
+              canDouble: hand.cards.length == 2,
+              canSplit: hand.isPair,
+              rules: RuleSet.sixFive,
+            ),
+            BasicStrategy.best(
+              hand: hand,
+              dealerUp: up,
+              canDouble: hand.cards.length == 2,
+              canSplit: hand.isPair,
+            ),
+            reason: 'a worse payout does not change correct play',
+          );
+        }
+      }
+    });
+  });
+
+  group('Every shipped preset is coherent', () {
+    test('none advertises surrender, because the table cannot surrender', () {
+      for (final preset in RuleSet.presets) {
+        expect(preset.lateSurrender, isFalse, reason: preset.name);
+      }
+    });
+
+    test('every preset returns a legal move for every hand', () {
+      for (final preset in RuleSet.presets) {
+        for (final hand in [..._hardHands.values, _pair(Rank.ace)]) {
+          for (final up in _upCards) {
+            final move = BasicStrategy.best(
+              hand: hand,
+              dealerUp: up,
+              canDouble: hand.cards.length == 2,
+              canSplit: hand.isPair,
+              rules: preset,
+            );
+            expect(StrategyMove.values, contains(move),
+                reason: '${preset.name}: ${hand.value} vs ${up.rank.display}');
+          }
+        }
+      }
+    });
+
+    test('preset ids are unique and resolvable', () {
+      final ids = RuleSet.presets.map((p) => p.id).toList();
+      expect(ids.toSet().length, ids.length);
+      for (final preset in RuleSet.presets) {
+        expect(RuleSet.byId(preset.id), preset);
+      }
+      expect(RuleSet.byId('nonsense'), RuleSet.fallback);
+      expect(RuleSet.byId(null), RuleSet.fallback);
     });
   });
 }

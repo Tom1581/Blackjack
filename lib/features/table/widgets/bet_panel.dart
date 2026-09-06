@@ -12,6 +12,7 @@ class BetPanel extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final compact = MediaQuery.sizeOf(context).height < 700;
     final state = ref.watch(tableProvider);
     final notifier = ref.read(tableProvider.notifier);
     final target = ref.watch(betTargetProvider);
@@ -48,7 +49,7 @@ class BetPanel extends ConsumerWidget {
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 18),
+      padding: EdgeInsets.fromLTRB(14, compact ? 6 : 10, 14, compact ? 10 : 18),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -63,11 +64,11 @@ class BetPanel extends ConsumerWidget {
               ref.read(betTargetProvider.notifier).state = t;
             },
           ),
-          const SizedBox(height: 6),
+          SizedBox(height: compact ? 4 : 6),
 
           // Hint about the active target
           SizedBox(
-            height: 14,
+            height: compact ? 12 : 14,
             child: target == BetTarget.side
                 ? Text(
                     'DEALER BUST · pays 2× / 4× / 15× / 50× / 100×',
@@ -90,7 +91,7 @@ class BetPanel extends ConsumerWidget {
                     ),
                   ),
           ),
-          const SizedBox(height: 8),
+          SizedBox(height: compact ? 5 : 8),
 
           // Chip row
           Row(
@@ -103,6 +104,7 @@ class BetPanel extends ConsumerWidget {
                 child: _CasinoChip(
                   value: value,
                   color: color,
+                  size: compact ? 48 : 56,
                   enabled: canAffordChip(value),
                   onTap: () {
                     HapticFeedback.lightImpact();
@@ -116,7 +118,7 @@ class BetPanel extends ConsumerWidget {
               );
             }).toList(),
           ),
-          const SizedBox(height: 12),
+          SizedBox(height: compact ? 8 : 12),
 
           // Action buttons
           Row(
@@ -132,7 +134,7 @@ class BetPanel extends ConsumerWidget {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white54,
                     side: const BorderSide(color: Colors.white24),
-                    minimumSize: const Size(0, 46),
+                    minimumSize: Size(0, compact ? 40 : 46),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
                   ),
@@ -157,7 +159,7 @@ class BetPanel extends ConsumerWidget {
                     foregroundColor: AppColors.wood,
                     disabledBackgroundColor:
                         AppColors.gold.withValues(alpha: 0.3),
-                    minimumSize: const Size(0, 46),
+                    minimumSize: Size(0, compact ? 40 : 46),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
                   ),
@@ -235,9 +237,8 @@ class _BetTargetTabs extends StatelessWidget {
         duration: const Duration(milliseconds: 150),
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         decoration: BoxDecoration(
-          color: isActive
-              ? AppColors.gold
-              : Colors.black.withValues(alpha: 0.25),
+          color:
+              isActive ? AppColors.gold : Colors.black.withValues(alpha: 0.25),
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
             color: isActive
@@ -289,12 +290,14 @@ class _BetTargetTabs extends StatelessWidget {
 class _CasinoChip extends StatelessWidget {
   final int value;
   final Color color;
+  final double size;
   final bool enabled;
   final VoidCallback onTap;
 
   const _CasinoChip({
     required this.value,
     required this.color,
+    required this.size,
     required this.enabled,
     required this.onTap,
   });
@@ -307,8 +310,8 @@ class _CasinoChip extends StatelessWidget {
         opacity: enabled ? 1.0 : 0.3,
         duration: const Duration(milliseconds: 150),
         child: Container(
-          width: 56,
-          height: 56,
+          width: size,
+          height: size,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: color,
@@ -331,8 +334,8 @@ class _CasinoChip extends StatelessWidget {
             alignment: Alignment.center,
             children: [
               Container(
-                width: 42,
-                height: 42,
+                width: size * 0.75,
+                height: size * 0.75,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   border: Border.all(

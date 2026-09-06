@@ -6,8 +6,9 @@ import 'realtime_transport.dart';
 
 /// Supabase Realtime implementation of [RealtimeTransport]. Uses a Broadcast
 /// channel (one per room code) for game messages and Presence for the roster.
-/// Works with the public/anon key alone — no tables, auth, or Edge Functions
-/// required, so it stays comfortably inside the free tier.
+/// Every channel is private: a signed-in account must first be admitted to the
+/// room by the database. Broadcast writes are allowed only for admitted room
+/// members by the Realtime RLS policy.
 ///
 /// Deliberately imports the pure-Dart `supabase` package rather than
 /// `supabase_flutter`, so the whole online stack can be driven against the
@@ -29,11 +30,12 @@ class SupabaseTransport implements RealtimeTransport {
   @override
   Stream<List<PresenceMember>> get presence => _presence.stream;
 
-  static const _channelPrefix = 'bj_room_';
+  @override
+  bool get usesServerStampedIdentity => false;
 
-  /// Everything is wrapped in a single broadcast event so one listener
-  /// suffices; the real message kind travels inside the payload.
   static const _envelope = 'msg';
+
+  static const _channelPrefix = 'bj_room_';
 
   /// Payload key naming the message kind ('state', 'intent', …).
   ///
@@ -55,9 +57,15 @@ class SupabaseTransport implements RealtimeTransport {
 
   @override
   Future<void> join(String roomCode, Map<String, dynamic> presenceData) async {
+    if (_client.auth.currentUser == null) {
+      throw StateError('Sign in before joining an online room.');
+    }
     final channel = _client.channel(
       '$_channelPrefix$roomCode',
-      opts: RealtimeChannelConfig(key: clientId),
+      opts: RealtimeChannelConfig(
+        key: clientId,
+        private: true,
+      ),
     );
 
     channel.onBroadcast(
@@ -74,34 +82,44 @@ class SupabaseTransport implements RealtimeTransport {
         .onPresenceJoin(emitPresence)
         .onPresenceLeave(emitPresence);
 
-    final completer = Completer<void>();
-    channel.subscribe((status, error) async {
+    final subscribed = Completer<void>();
+    channel.subscribe((status, error) {
       if (status == RealtimeSubscribeStatus.subscribed) {
-        await channel.track(presenceData);
-        if (!completer.isCompleted) completer.complete();
-      } else if (error != null && !completer.isCompleted) {
-        completer.completeError(error);
+        if (!subscribed.isCompleted) subscribed.complete();
+      } else if (error != null && !subscribed.isCompleted) {
+        subscribed.completeError(error);
       }
     });
 
+    await subscribed.future.timeout(
+      const Duration(seconds: 20),
+      onTimeout: () => throw TimeoutException(
+        'Timed out joining Supabase Realtime.',
+      ),
+    );
+    // Presence is only a liveness hint. The controller seats players from the
+    // server-stamped memberJoined broadcast, never from this data.
+    await channel.track({...presenceData, 'id': clientId});
     _channel = channel;
-    return completer.future;
   }
 
   @override
   Future<void> updatePresence(Map<String, dynamic> presenceData) async {
     // Tracking again on a subscribed channel replaces this client's entry.
-    await _channel?.track(presenceData);
+    await _channel?.track({...presenceData, 'id': clientId});
   }
 
   @override
   Future<void> send(String event, Map<String, dynamic> payload) async {
     final channel = _channel;
     if (channel == null) return;
-    await channel.sendBroadcastMessage(
+    final response = await channel.sendBroadcastMessage(
       event: _envelope,
       payload: encodeEnvelope(event, payload, clientId),
     );
+    if (response != ChannelResponse.ok) {
+      throw StateError('Supabase Realtime rejected the game message.');
+    }
   }
 
   /// Wrap a game message for the wire.
@@ -115,16 +133,21 @@ class SupabaseTransport implements RealtimeTransport {
   /// Unwrap a broadcast payload, or null if it is not one of ours.
   ///
   /// The incoming map is whatever Supabase delivers — our keys plus the
-  /// service's own `event` and `type`, which is exactly why neither of those
-  /// names may carry our data.
+  /// service's own `event` and `type`. Database-originated broadcasts have
+  /// one further wrapper: `{id, data: <our envelope>}`, which is accepted too
+  /// for compatibility with retained/replayed database messages.
   static TransportMessage? decodeEnvelope(Map<String, dynamic> payload) {
-    final kind = payload[_kind] as String? ?? '';
-    final from = payload[_from] as String? ?? '';
+    final wrapped = payload[_data];
+    final envelope = payload[_kind] == null && wrapped is Map
+        ? Map<String, dynamic>.from(wrapped)
+        : payload;
+    final kind = envelope[_kind] as String? ?? '';
+    final from = envelope[_from] as String? ?? '';
     // Supabase never stamps a sender, so the envelope id is the best signal
     // available here. The host does the real check: an intent is only applied
     // if its sender actually holds a seat at the table.
     if (kind.isEmpty || from.isEmpty) return null;
-    final data = payload[_data];
+    final data = envelope[_data];
     return TransportMessage(
       kind,
       data is Map ? Map<String, dynamic>.from(data) : const {},

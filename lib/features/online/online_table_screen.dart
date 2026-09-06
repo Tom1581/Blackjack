@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../../core/audio/sound_service.dart';
+import '../../core/growth/share_messages.dart';
 import '../../core/models/game_state.dart';
 import '../../core/models/hand_model.dart';
 import '../../theme/app_theme.dart';
@@ -123,6 +125,30 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
 
   void _leave([OnlineExit exit = OnlineExit.normal]) {
     Navigator.of(context).pop(exit);
+  }
+
+  Future<void> _shareRoom(BuildContext shareContext) async {
+    final box = shareContext.findRenderObject() as RenderBox?;
+    final origin = box == null
+        ? null
+        : box.localToGlobal(Offset.zero) & box.size;
+    await Share.share(
+      GrowthShareMessages.roomInvite(c.roomCode),
+      subject: 'Join my Hi-Lo Blackjack table',
+      sharePositionOrigin: origin,
+    );
+  }
+
+  void _copyRoomCode() {
+    Clipboard.setData(ClipboardData(text: c.roomCode));
+    HapticFeedback.lightImpact();
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Room code ${c.roomCode} copied'),
+        duration: const Duration(seconds: 1),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
   }
 
   @override
@@ -275,50 +301,47 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
   }
 
   Widget _roomPill() {
-    return GestureDetector(
-      onTap: () {
-        Clipboard.setData(ClipboardData(text: c.roomCode));
-        HapticFeedback.lightImpact();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Room code ${c.roomCode} copied — share it!'),
-            duration: const Duration(seconds: 1),
-            behavior: SnackBarBehavior.floating,
+    return Tooltip(
+      message: 'Invite friends',
+      child: GestureDetector(
+        onTap: () => _shareRoom(context),
+        onLongPress: _copyRoomCode,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: Colors.black.withValues(alpha: 0.3),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: AppColors.gold.withValues(alpha: 0.5)),
           ),
-        );
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        decoration: BoxDecoration(
-          color: Colors.black.withValues(alpha: 0.3),
-          borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: AppColors.gold.withValues(alpha: 0.5)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'ROOM ',
-              style: TextStyle(
-                color: AppColors.gold.withValues(alpha: 0.7),
-                fontSize: 10,
-                fontWeight: FontWeight.w800,
-                letterSpacing: 1,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'ROOM ',
+                style: TextStyle(
+                  color: AppColors.gold.withValues(alpha: 0.7),
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1,
+                ),
               ),
-            ),
-            Text(
-              c.roomCode,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 17,
-                fontWeight: FontWeight.w900,
-                letterSpacing: 2.5,
+              Text(
+                c.roomCode,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2.5,
+                ),
               ),
-            ),
-            const SizedBox(width: 6),
-            Icon(Icons.copy,
-                size: 13, color: AppColors.gold.withValues(alpha: 0.75)),
-          ],
+              const SizedBox(width: 6),
+              Icon(
+                Icons.ios_share,
+                size: 13,
+                color: AppColors.gold.withValues(alpha: 0.75),
+              ),
+            ],
+          ),
         ),
       ),
     );

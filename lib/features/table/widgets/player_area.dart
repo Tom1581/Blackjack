@@ -7,28 +7,31 @@ import '../table_provider.dart';
 import 'card_widget.dart';
 
 class PlayerArea extends ConsumerWidget {
-  const PlayerArea({super.key});
+  final bool compact;
+
+  const PlayerArea({super.key, this.compact = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(tableProvider);
     final hands = state.playerHands;
+    final cardWidth = compact ? 60.0 : 72.0;
 
     return Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
         if (hands.length == 1)
-          _handRow(hands[0], 0, state, isSplit: false)
+          _handRow(hands[0], 0, state, isSplit: false, cardWidth: cardWidth)
         else
           SizedBox(
-            height: 210,
+            height: compact ? 176 : 210,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               padding: const EdgeInsets.symmetric(horizontal: 12),
               itemCount: hands.length,
               separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (_, i) =>
-                  _handRow(hands[i], i, state, isSplit: true),
+              itemBuilder: (_, i) => _handRow(hands[i], i, state,
+                  isSplit: true, cardWidth: cardWidth),
             ),
           ),
       ],
@@ -40,12 +43,12 @@ class PlayerArea extends ConsumerWidget {
     int index,
     GameState state, {
     required bool isSplit,
+    required double cardWidth,
   }) {
     final isActive =
         index == state.activeHandIndex && state.phase == GamePhase.playerTurn;
-    final result = state.handResults.length > index
-        ? state.handResults[index]
-        : null;
+    final result =
+        state.handResults.length > index ? state.handResults[index] : null;
     final showPointer = isSplit && isActive;
 
     return Column(
@@ -57,35 +60,54 @@ class PlayerArea extends ConsumerWidget {
         if (isSplit)
           SizedBox(
             height: 36,
-            child: showPointer
-                ? const Center(child: _ActiveHandPointer())
-                : null,
+            child:
+                showPointer ? const Center(child: _ActiveHandPointer()) : null,
           ),
 
         // Card row
         SizedBox(
-          height: 108,
+          height: cardWidth * 1.4,
           child: hand.cards.isEmpty
               ? Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    CardWidget(card: null, width: 72),
+                    CardWidget(card: null, width: cardWidth),
                     const SizedBox(width: 8),
-                    CardWidget(card: null, width: 72),
+                    CardWidget(card: null, width: cardWidth),
                   ],
                 )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    for (int i = 0; i < hand.cards.length; i++)
-                      Padding(
-                        padding: EdgeInsets.only(left: i == 0 ? 0 : 6),
-                        child: CardWidget(card: hand.cards[i]),
+              : hand.cards.length <= 4
+                  ? Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        for (int i = 0; i < hand.cards.length; i++)
+                          Padding(
+                            padding: EdgeInsets.only(left: i == 0 ? 0 : 6),
+                            child: CardWidget(
+                              card: hand.cards[i],
+                              width: cardWidth,
+                            ),
+                          ),
+                      ],
+                    )
+                  : SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (int i = 0; i < hand.cards.length; i++)
+                            Padding(
+                              padding: EdgeInsets.only(left: i == 0 ? 0 : 6),
+                              child: CardWidget(
+                                card: hand.cards[i],
+                                width: cardWidth,
+                              ),
+                            ),
+                        ],
                       ),
-                  ],
-                ),
+                    ),
         ),
-        const SizedBox(height: 8),
+        SizedBox(height: compact ? 6 : 8),
 
         // Score badge
         if (hand.cards.isNotEmpty)

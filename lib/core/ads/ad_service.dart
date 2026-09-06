@@ -18,13 +18,11 @@ class AdMobIds {
     defaultValue: 'ca-app-pub-1653382608147355/3165067038',
   );
 
-  /// Live rewarded unit. **Create this in the AdMob console and set it here**
-  /// (or via `--dart-define=ADMOB_REWARDED_ANDROID=…`). While it is empty the
-  /// app simply grants the reward without an ad — nothing breaks, it just
-  /// earns nothing.
+  /// Live rewarded unit. It may be overridden with
+  /// `--dart-define=ADMOB_REWARDED_ANDROID=…` for a different release.
   static const androidRewardedUnitId = String.fromEnvironment(
     'ADMOB_REWARDED_ANDROID',
-    defaultValue: '',
+    defaultValue: 'ca-app-pub-1653382608147355/2420451608',
   );
 
   // Google's public test units. Used in debug so nobody ever risks serving

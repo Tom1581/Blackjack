@@ -2,7 +2,7 @@ name: blackjack_app
 description: Blackjack with Hi-Lo card counting — Android & iOS
 
 publish_to: 'none'
-version: 1.1.0+4
+version: 1.1.5+9
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -16,7 +16,9 @@ dependencies:
   google_mobile_ads: ^8.0.0
   in_app_review: ^2.0.9
   riverpod_annotation: ^2.3.5
+  share_plus: ^9.0.0
   shared_preferences: ^2.2.3
+  url_launcher: ^6.3.1
   # The pure-Dart client. The transport layer uses this rather than
   # supabase_flutter so it can be driven from a plain `dart run` script
   # against the live service, with no Flutter bindings.

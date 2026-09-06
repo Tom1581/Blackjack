@@ -27,7 +27,8 @@ class InMemoryBroker {
       Map<String, dynamic> payload) {
     for (final t in _rooms[room] ?? const <InMemoryTransport>[]) {
       // The broker stamps the true sender, so the game layer can trust it.
-      if (t != from) t._deliver(TransportMessage(event, payload, from.clientId));
+      if (t != from)
+        t._deliver(TransportMessage(event, payload, from.clientId));
     }
   }
 
@@ -46,6 +47,9 @@ class InMemoryTransport implements RealtimeTransport {
   final InMemoryBroker _broker;
   @override
   final String clientId;
+
+  @override
+  bool get usesServerStampedIdentity => false;
 
   String? _room;
   Map<String, dynamic> _presenceData = const {};

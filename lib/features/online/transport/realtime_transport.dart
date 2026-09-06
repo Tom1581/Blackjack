@@ -36,6 +36,11 @@ abstract class RealtimeTransport {
   /// Stable id of this client.
   String get clientId;
 
+  /// Whether this transport delivers membership messages with a sender id
+  /// stamped by the server. The in-memory test transport is intentionally
+  /// simple and keeps its existing presence-based seating behavior.
+  bool get usesServerStampedIdentity => false;
+
   /// Join a room channel and start tracking presence with [presenceData].
   /// Completes once the channel is subscribed.
   Future<void> join(String roomCode, Map<String, dynamic> presenceData);

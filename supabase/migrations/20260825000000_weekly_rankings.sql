@@ -24,7 +24,10 @@ create table if not exists public.weekly_rankings (
   constraint weekly_rankings_plausible check (
     hands_played >= 0
     and hands_played <= 1000000
-    and abs(profit) <= greatest(hands_played, 1) * 10000
+    -- Cast before multiplying: hands_played is an int4, and the largest value
+    -- this same constraint permits (1,000,000) times 10,000 overflows it, so
+    -- the check would fail with "integer out of range" instead of passing.
+    and abs(profit::bigint) <= greatest(hands_played, 1)::bigint * 10000
     and char_length(display_name) between 1 and 12
     and week_key ~ '^W[0-9]{1,6}$'
   )
