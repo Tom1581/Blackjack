@@ -28,6 +28,10 @@ class LeaderboardEntry {
   final int handsPlayed;
   final bool isCurrentUser;
 
+  /// Decisions graded by the coach this week, and how many were right.
+  final int decisions;
+  final int correctDecisions;
+
   /// 1-based position on the board. Zero means "not ranked yet".
   final int rank;
 
@@ -36,14 +40,22 @@ class LeaderboardEntry {
     required this.profit,
     this.handsPlayed = 0,
     this.isCurrentUser = false,
+    this.decisions = 0,
+    this.correctDecisions = 0,
     this.rank = 0,
   });
+
+  /// Whole-number accuracy, rounded down — 99.9% is not 100%.
+  int get accuracyPercent =>
+      decisions > 0 ? correctDecisions * 100 ~/ decisions : 0;
 
   LeaderboardEntry withRank(int value) => LeaderboardEntry(
         name: name,
         profit: profit,
         handsPlayed: handsPlayed,
         isCurrentUser: isCurrentUser,
+        decisions: decisions,
+        correctDecisions: correctDecisions,
         rank: value,
       );
 }
@@ -91,6 +103,11 @@ abstract class BoardBackend {
 
   /// Read a week's rows, highest profit first.
   Future<List<Map<String, dynamic>>> weekRows(String weekKey, int limit);
+
+  /// Read a week's accuracy league: players with at least [minDecisions]
+  /// graded decisions, most accurate first, more decisions breaking ties.
+  Future<List<Map<String, dynamic>>> accuracyRows(
+      String weekKey, int minDecisions, int limit);
 }
 
 /// Talks to the `weekly_rankings` table.
@@ -99,6 +116,22 @@ class SupabaseBoardBackend implements BoardBackend {
   const SupabaseBoardBackend(this.client);
 
   static const table = 'weekly_rankings';
+
+  /// Set once the accuracy migration turns out not to be applied, so every
+  /// later push goes straight to the original function instead of failing
+  /// first. Reset on the next launch, which picks the migration up.
+  static bool _accuracyUnavailable = false;
+
+  @visibleForTesting
+  static void resetAccuracyProbe() => _accuracyUnavailable = false;
+
+  /// PostgREST's "no such function" and "no such column" — what an older
+  /// database without the accuracy migration answers with.
+  static bool isMissingSchema(PostgrestException e) =>
+      e.code == 'PGRST202' ||
+      e.code == '42883' ||
+      e.code == '42703' ||
+      e.code == 'PGRST204';
 
   @override
   Future<String> identify() async {
@@ -118,6 +151,24 @@ class SupabaseBoardBackend implements BoardBackend {
     // Direct table writes are deliberately revoked. The database function
     // enforces the current week, a monotonic hand count, and plausible score
     // changes before it updates this authenticated user's row.
+    if (row.containsKey('decisions') && !_accuracyUnavailable) {
+      try {
+        await client.rpc('submit_weekly_ranking_v2', params: {
+          'p_week_key': row['week_key'],
+          'p_display_name': row['display_name'],
+          'p_profit': row['profit'],
+          'p_hands_played': row['hands_played'],
+          'p_decisions': row['decisions'],
+          'p_correct_decisions': row['correct_decisions'],
+        });
+        return;
+      } on PostgrestException catch (e) {
+        if (!isMissingSchema(e)) rethrow;
+        // The accuracy migration is not applied yet: keep the profit board
+        // working through the original function.
+        _accuracyUnavailable = true;
+      }
+    }
     await client.rpc('submit_weekly_ranking', params: {
       'p_week_key': row['week_key'],
       'p_display_name': row['display_name'],
@@ -128,11 +179,39 @@ class SupabaseBoardBackend implements BoardBackend {
 
   @override
   Future<List<Map<String, dynamic>>> weekRows(String weekKey, int limit) async {
+    Future<List<Map<String, dynamic>>> read(String columns) async {
+      final rows = await client
+          .from(table)
+          .select(columns)
+          .eq('week_key', weekKey)
+          .order('profit', ascending: false)
+          .limit(limit);
+      return rows.cast<Map<String, dynamic>>();
+    }
+
+    const base = 'player_id, display_name, profit, hands_played';
+    if (!_accuracyUnavailable) {
+      try {
+        return await read('$base, decisions, correct_decisions');
+      } on PostgrestException catch (e) {
+        if (!isMissingSchema(e)) rethrow;
+        _accuracyUnavailable = true;
+      }
+    }
+    return read(base);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> accuracyRows(
+      String weekKey, int minDecisions, int limit) async {
     final rows = await client
         .from(table)
-        .select('player_id, display_name, profit, hands_played')
+        .select('player_id, display_name, profit, hands_played, decisions, '
+            'correct_decisions')
         .eq('week_key', weekKey)
-        .order('profit', ascending: false)
+        .gte('decisions', minDecisions)
+        .order('accuracy_bp', ascending: false)
+        .order('decisions', ascending: false)
         .limit(limit);
     return rows.cast<Map<String, dynamic>>();
   }
@@ -151,9 +230,14 @@ class WeeklyBoardService {
   /// Scores are pushed no more often than this while playing.
   static const pushInterval = Duration(seconds: 30);
 
+  /// Graded decisions needed to appear on the accuracy league. Fewer than
+  /// this and a lucky handful would top the board.
+  static const minAccuracyDecisions = 50;
+
   static DateTime? _lastPush;
   static int? _pushedProfit;
   static int? _pushedHands;
+  static int? _pushedDecisions;
 
   @visibleForTesting
   static DateTime Function() now = DateTime.now;
@@ -179,9 +263,14 @@ class WeeklyBoardService {
 
     final profit = await LeaderboardService.readWeeklyProfit();
     final hands = await LeaderboardService.readHandsPlayed();
+    final graded = await LeaderboardService.readWeeklyDecisions();
     // Nothing to say until they have actually played.
     if (hands == 0) return false;
-    if (profit == _pushedProfit && hands == _pushedHands) return false;
+    if (profit == _pushedProfit &&
+        hands == _pushedHands &&
+        graded.decisions == _pushedDecisions) {
+      return false;
+    }
 
     final last = _lastPush;
     if (!force && last != null && now().difference(last) < pushInterval) {
@@ -200,10 +289,13 @@ class WeeklyBoardService {
         'display_name': name,
         'profit': profit,
         'hands_played': hands,
+        'decisions': graded.decisions,
+        'correct_decisions': graded.correct,
       });
       _lastPush = now();
       _pushedProfit = profit;
       _pushedHands = hands;
+      _pushedDecisions = graded.decisions;
       return true;
     } catch (error) {
       debugPrint('Weekly board push failed: ${describeFailure(error)}');
@@ -229,17 +321,10 @@ class WeeklyBoardService {
       final rows =
           await backend.weekRows(LeaderboardService.weekKey(), boardLimit);
 
-      final entries = <LeaderboardEntry>[];
-      for (var i = 0; i < rows.length; i++) {
-        final row = rows[i];
-        entries.add(LeaderboardEntry(
-          name: (row['display_name'] as String?) ?? 'Player',
-          profit: (row['profit'] as num?)?.toInt() ?? 0,
-          handsPlayed: (row['hands_played'] as num?)?.toInt() ?? 0,
-          isCurrentUser: row['player_id'] == userId,
-          rank: i + 1,
-        ));
-      }
+      final entries = [
+        for (var i = 0; i < rows.length; i++)
+          _entryFrom(rows[i], userId, i + 1),
+      ];
 
       final myIndex = entries.indexWhere((e) => e.isCurrentUser);
       final me = myIndex >= 0 ? entries[myIndex] : await _localEntry();
@@ -260,6 +345,72 @@ class WeeklyBoardService {
         describeFailure(error),
       );
     }
+  }
+
+  /// This week's accuracy league: players with at least
+  /// [minAccuracyDecisions] graded decisions, most accurate first.
+  static Future<WeeklyBoard> fetchAccuracy() async {
+    await push(force: true);
+
+    final backend = _backend;
+    if (backend == null) {
+      return _localAccuracy(
+          BoardStatus.offline, 'Supabase is not initialised on this device.');
+    }
+    try {
+      final userId = await backend.identify();
+      final rows = await backend.accuracyRows(
+          LeaderboardService.weekKey(), minAccuracyDecisions, boardLimit);
+      final entries = [
+        for (var i = 0; i < rows.length; i++)
+          _entryFrom(rows[i], userId, i + 1),
+      ];
+      final myIndex = entries.indexWhere((e) => e.isCurrentUser);
+      return WeeklyBoard(
+        status: BoardStatus.live,
+        entries: entries,
+        me: myIndex >= 0 ? entries[myIndex] : await _localEntry(),
+        playerCount: entries.length,
+      );
+    } catch (error) {
+      return _localAccuracy(
+        isSetupProblem(error) ? BoardStatus.notConfigured : BoardStatus.offline,
+        describeFailure(error),
+      );
+    }
+  }
+
+  static LeaderboardEntry _entryFrom(
+    Map<String, dynamic> row,
+    String userId,
+    int rank,
+  ) =>
+      LeaderboardEntry(
+        name: (row['display_name'] as String?) ?? 'Player',
+        profit: (row['profit'] as num?)?.toInt() ?? 0,
+        handsPlayed: (row['hands_played'] as num?)?.toInt() ?? 0,
+        decisions: (row['decisions'] as num?)?.toInt() ?? 0,
+        correctDecisions: (row['correct_decisions'] as num?)?.toInt() ?? 0,
+        isCurrentUser: row['player_id'] == userId,
+        rank: rank,
+      );
+
+  /// The accuracy board of one: this player, ranked only once they have
+  /// enough decisions to count.
+  static Future<WeeklyBoard> _localAccuracy(
+    BoardStatus status,
+    String diagnostic,
+  ) async {
+    final me = await _localEntry();
+    final qualifies = me.decisions >= minAccuracyDecisions;
+    debugPrint('Accuracy board unavailable ($status): $diagnostic');
+    return WeeklyBoard(
+      status: status,
+      entries: qualifies ? [me.withRank(1)] : const [],
+      me: me.withRank(qualifies ? 1 : 0),
+      playerCount: qualifies ? 1 : 0,
+      diagnostic: diagnostic,
+    );
   }
 
   /// A board of one: just this player's own week. Honest, and still something
@@ -283,10 +434,13 @@ class WeeklyBoardService {
   static Future<LeaderboardEntry> _localEntry() async {
     var name = await loadPlayerName();
     if (name.isEmpty) name = 'You';
+    final graded = await LeaderboardService.readWeeklyDecisions();
     return LeaderboardEntry(
       name: name,
       profit: await LeaderboardService.readWeeklyProfit(),
       handsPlayed: await LeaderboardService.readHandsPlayed(),
+      decisions: graded.decisions,
+      correctDecisions: graded.correct,
       isCurrentUser: true,
     );
   }
@@ -296,8 +450,11 @@ class WeeklyBoardService {
   @visibleForTesting
   static bool isSetupProblem(Object error) {
     if (error is PostgrestException) {
-      // 42P01 undefined_table, 42501 insufficient_privilege.
-      return error.code == '42P01' || error.code == '42501';
+      // 42P01 undefined_table, 42501 insufficient_privilege, and the missing
+      // column / function of a database without the accuracy migration.
+      return error.code == '42P01' ||
+          error.code == '42501' ||
+          SupabaseBoardBackend.isMissingSchema(error);
     }
     return error is AuthException;
   }
@@ -323,6 +480,8 @@ class WeeklyBoardService {
     _lastPush = null;
     _pushedProfit = null;
     _pushedHands = null;
+    _pushedDecisions = null;
+    SupabaseBoardBackend.resetAccuracyProbe();
     backendOverride = null;
     now = DateTime.now;
   }

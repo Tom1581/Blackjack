@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/engine/game_engine.dart';
+import '../../../core/strategy/bet_ramp.dart';
+import '../../../core/strategy/strategy_coach.dart' show formatTrueCount;
 import '../../../theme/app_theme.dart';
 import '../table_provider.dart';
 
@@ -24,6 +26,11 @@ class BetPanel extends ConsumerWidget {
     final activeSpotBet = state.spotBets[activeSpot];
     final sideBet = state.sideBet;
     final bankroll = state.bankroll;
+    final canRebet = ref.watch(canRebetProvider);
+    final betCoach =
+        ref.watch(betCoachProvider) && !ref.watch(tableEngineProvider).continuous;
+    final unit = ref.watch(betUnitProvider);
+    final showCount = ref.watch(showCountProvider);
 
     bool canAffordChip(int value) {
       final totalAfter = totalMain + sideBet + value;
@@ -79,17 +86,52 @@ class BetPanel extends ConsumerWidget {
                       letterSpacing: 1,
                     ),
                   )
-                : Text(
-                    spotCount > 1
-                        ? 'TAP A HAND CIRCLE, THEN CHIPS  ·  TOTAL \$$totalMain'
-                        : 'TAP CHIPS TO BET',
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.35),
-                      fontSize: 9,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 2,
-                    ),
-                  ),
+                : betCoach
+                    // The ramp's bet. With the HUD hidden the number would
+                    // give the count away, so only the rule is shown — the
+                    // deal still checks the bet against it.
+                    ? FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              showCount
+                                  ? _rampLine(state.trueCount, unit)
+                                  : 'BET 1 UNIT (\$$unit) UP TO +2, THEN '
+                                      'TRUE COUNT − 1 UNITS',
+                              key: const ValueKey('bet-ramp'),
+                              style: TextStyle(
+                                color: AppColors.gold.withValues(alpha: 0.85),
+                                fontSize: 9,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: 1.2,
+                              ),
+                            ),
+                            if (showCount &&
+                                BetRamp.matches(
+                                    totalMain, state.trueCount, unit)) ...[
+                              const SizedBox(width: 5),
+                              const Icon(Icons.check_circle,
+                                  key: ValueKey('bet-ramp-ok'),
+                                  size: 11,
+                                  color: AppColors.favorable),
+                            ],
+                          ],
+                        ),
+                      )
+                    : Text(
+                        spotCount > 1
+                            ? 'TAP A HAND CIRCLE, THEN CHIPS  ·  TOTAL '
+                                '\$$totalMain'
+                            : 'TAP CHIPS TO BET',
+                        style: TextStyle(
+                          color: Colors.white.withValues(alpha: 0.35),
+                          fontSize: 9,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 2,
+                        ),
+                      ),
           ),
           SizedBox(height: compact ? 5 : 8),
 
@@ -134,6 +176,7 @@ class BetPanel extends ConsumerWidget {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Colors.white54,
                     side: const BorderSide(color: Colors.white24),
+                    padding: EdgeInsets.zero,
                     minimumSize: Size(0, compact ? 40 : 46),
                     shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(10)),
@@ -144,7 +187,37 @@ class BetPanel extends ConsumerWidget {
                   ),
                 ),
               ),
-              const SizedBox(width: 12),
+              const SizedBox(width: 8),
+              // REBET — every casino app has it, and without it the player
+              // rebuilt the same bet chip by chip after every single hand.
+              Expanded(
+                child: OutlinedButton(
+                  key: const ValueKey('rebet'),
+                  onPressed: canRebet
+                      ? () {
+                          HapticFeedback.lightImpact();
+                          notifier.rebet();
+                        }
+                      : null,
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.gold,
+                    side: BorderSide(
+                      color: canRebet
+                          ? AppColors.gold.withValues(alpha: 0.7)
+                          : Colors.white12,
+                    ),
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size(0, compact ? 40 : 46),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(10)),
+                  ),
+                  child: const Text(
+                    'REBET',
+                    style: TextStyle(letterSpacing: 1.5, fontSize: 13),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               Expanded(
                 flex: 2,
                 child: ElevatedButton(
@@ -179,6 +252,13 @@ class BetPanel extends ConsumerWidget {
       ),
     );
   }
+}
+
+/// "TC +3.2 → BET 2 UNITS · $50".
+String _rampLine(double trueCount, int unit) {
+  final units = BetRamp.units(trueCount);
+  return 'TC ${formatTrueCount(trueCount)} → BET $units '
+      'UNIT${units == 1 ? '' : 'S'} · \$${units * unit}';
 }
 
 /// Two-tab segmented control to choose which betting circle the next chip
@@ -246,7 +326,11 @@ class _BetTargetTabs extends StatelessWidget {
                 : AppColors.gold.withValues(alpha: 0.25),
           ),
         ),
-        child: Row(
+        // Scales down rather than overflowing on a 360dp phone, where
+        // "SIDE $50 max $50" is a hair wider than half the panel.
+        child: FittedBox(
+          fit: BoxFit.scaleDown,
+          child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
@@ -281,6 +365,7 @@ class _BetTargetTabs extends StatelessWidget {
               ),
             ],
           ],
+        ),
         ),
       ),
     );

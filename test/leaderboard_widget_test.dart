@@ -171,4 +171,87 @@ void main() {
     expect(find.text('—'), findsOneWidget);
     expect(find.text('0'), findsNothing);
   });
+
+  testWidgets('the accuracy league ranks by decisions, not chips',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 740));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    LeaderboardEntry acc(String name, int d, int c,
+            {int rank = 0, bool me = false}) =>
+        LeaderboardEntry(
+          name: name,
+          profit: -100,
+          decisions: d,
+          correctDecisions: c,
+          rank: rank,
+          isCurrentUser: me,
+        );
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        weeklyBoardProvider.overrideWith((ref) async => WeeklyBoard(
+              status: BoardStatus.live,
+              playerCount: 1,
+              entries: [entry('Ann', 900, rank: 1)],
+              me: entry('Ann', 900, rank: 1),
+            )),
+        weeklyAccuracyBoardProvider.overrideWith((ref) async => WeeklyBoard(
+              status: BoardStatus.live,
+              playerCount: 4,
+              entries: [
+                acc('Bo', 60, 60, rank: 1),
+                acc('Zed', 80, 76, rank: 2, me: true),
+                acc('Di', 200, 182, rank: 3),
+                acc('Cy', 100, 80, rank: 4),
+              ],
+              me: acc('Zed', 80, 76, rank: 2, me: true),
+            )),
+      ],
+      child: const MaterialApp(home: LeaderboardScreen()),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Top earners this week'), findsOneWidget);
+
+    await tester.tap(find.text('ACCURACY'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Best decisions this week'), findsOneWidget);
+    expect(find.text('100%'), findsOneWidget);
+    expect(find.text('95%'), findsOneWidget);
+    expect(find.text('4 PLAYERS · 50+ DECISIONS'), findsOneWidget);
+    expect(find.textContaining('to pass the player above'), findsNothing);
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('an empty accuracy league explains how to qualify',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(360, 740));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        weeklyBoardProvider.overrideWith(
+            (ref) async => const WeeklyBoard(status: BoardStatus.live)),
+        weeklyAccuracyBoardProvider.overrideWith((ref) async =>
+            const WeeklyBoard(
+              status: BoardStatus.live,
+              me: LeaderboardEntry(
+                  name: 'Zed',
+                  profit: 0,
+                  decisions: 12,
+                  correctDecisions: 11,
+                  isCurrentUser: true),
+            )),
+      ],
+      child: const MaterialApp(home: LeaderboardScreen()),
+    ));
+    await tester.pump();
+    await tester.tap(find.text('ACCURACY'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(find.text('Nobody has qualified yet'), findsOneWidget);
+    expect(find.textContaining('Make 50 decisions'), findsOneWidget);
+    expect(find.text('YOUR RANK'), findsOneWidget,
+        reason: 'your own progress is still shown');
+    expect(tester.takeException(), isNull);
+  });
 }

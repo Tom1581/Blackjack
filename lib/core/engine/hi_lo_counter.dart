@@ -7,15 +7,19 @@ enum CountSignal { favorable, neutral, unfavorable }
 /// Adds true count (running ÷ decks remaining) for better bet-sizing signal.
 class HiLoCounter {
   int _runningCount = 0;
-  int _decksRemaining;
+  double _decksRemaining;
   final int totalDecks;
 
-  HiLoCounter({required this.totalDecks}) : _decksRemaining = totalDecks;
+  HiLoCounter({required this.totalDecks})
+      : _decksRemaining = totalDecks.toDouble();
 
   int get runningCount => _runningCount;
 
-  double get trueCount =>
-      _decksRemaining > 0 ? _runningCount / _decksRemaining : _runningCount.toDouble();
+  /// Decks left in the shoe, to the nearest half deck — the resolution a
+  /// player can actually read off a discard tray.
+  double get decksRemaining => _decksRemaining;
+
+  double get trueCount => _runningCount / _decksRemaining;
 
   CountSignal get signal {
     final tc = trueCount;
@@ -45,12 +49,25 @@ class HiLoCounter {
     }
   }
 
+  /// Estimate decks remaining to the nearest half deck, never below half.
+  ///
+  /// This used to round *up* to a whole deck, which overstated the decks left
+  /// and so understated the true count exactly when it matters most: with 75
+  /// cards left (about 1.5 decks) a running count of +6 read as TC +3 instead
+  /// of +4, a whole betting unit too timid late in the shoe.
   void updateDecksRemaining(int cardsLeft) {
-    _decksRemaining = (cardsLeft / 52).ceil().clamp(1, totalDecks);
+    _decksRemaining = estimateDecks(cardsLeft, maxDecks: totalDecks);
+  }
+
+  /// [cardsLeft] as decks, rounded to the nearest half deck and kept within
+  /// half a deck and [maxDecks].
+  static double estimateDecks(int cardsLeft, {required int maxDecks}) {
+    final halves = (cardsLeft / 26).round();
+    return (halves / 2).clamp(0.5, maxDecks.toDouble());
   }
 
   void reset() {
     _runningCount = 0;
-    _decksRemaining = totalDecks;
+    _decksRemaining = totalDecks.toDouble();
   }
 }

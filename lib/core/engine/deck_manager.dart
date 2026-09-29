@@ -14,11 +14,18 @@ class DeckManager {
   }
 
   int get remaining => _shoe.length;
+  bool get isEmpty => _shoe.isEmpty;
   int get totalCards => numDecks * 52;
   double get penetration => 1 - (_shoe.length / totalCards);
 
   /// Draw from the top of the shoe.
+  ///
+  /// An empty shoe is rebuilt rather than allowed to throw. The cut card sits
+  /// at 25% so this needs an extreme round — three spots all splitting to four
+  /// hands from a two-deck shoe — but a crash mid-hand is never acceptable.
+  /// Callers that keep a count should check [isEmpty] first and reset it.
   CardModel draw({bool faceUp = true}) {
+    if (_shoe.isEmpty) reset();
     final card = _shoe.removeLast();
     return card.copyWith(faceUp: faceUp);
   }

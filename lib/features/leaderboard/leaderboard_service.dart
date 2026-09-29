@@ -13,6 +13,8 @@ class LeaderboardService {
   static const _kProfitKey = 'lb_weekly_profit';
   static const _kHandsKey = 'lb_weekly_hands';
   static const _kWeekKey = 'lb_week_id';
+  static const _kDecisionsKey = 'lb_weekly_decisions';
+  static const _kCorrectKey = 'lb_weekly_correct';
 
   // Weeks are anchored to Monday 2024-01-01 (which was a Monday).
   static final DateTime _epoch = DateTime(2024, 1, 1);
@@ -54,6 +56,8 @@ class LeaderboardService {
       await prefs.setString(_kWeekKey, current);
       await prefs.setInt(_kProfitKey, 0);
       await prefs.setInt(_kHandsKey, 0);
+      await prefs.setInt(_kDecisionsKey, 0);
+      await prefs.setInt(_kCorrectKey, 0);
       return 0;
     }
     return prefs.getInt(_kProfitKey) ?? 0;
@@ -63,6 +67,26 @@ class LeaderboardService {
     final prefs = await SharedPreferences.getInstance();
     await _readProfitWithRollover(prefs); // ensures the week is current
     return prefs.getInt(_kHandsKey) ?? 0;
+  }
+
+  /// This week's graded decisions: how many, and how many matched the coach.
+  static Future<({int decisions, int correct})> readWeeklyDecisions() async {
+    final prefs = await SharedPreferences.getInstance();
+    await _readProfitWithRollover(prefs); // ensures the week is current
+    return (
+      decisions: prefs.getInt(_kDecisionsKey) ?? 0,
+      correct: prefs.getInt(_kCorrectKey) ?? 0,
+    );
+  }
+
+  /// Count one graded decision toward this week's accuracy league.
+  static Future<void> recordDecision({required bool correct}) async {
+    final prefs = await SharedPreferences.getInstance();
+    await _readProfitWithRollover(prefs);
+    await prefs.setInt(_kDecisionsKey, (prefs.getInt(_kDecisionsKey) ?? 0) + 1);
+    if (correct) {
+      await prefs.setInt(_kCorrectKey, (prefs.getInt(_kCorrectKey) ?? 0) + 1);
+    }
   }
 
   /// Adds a per-hand delta to the running weekly profit.

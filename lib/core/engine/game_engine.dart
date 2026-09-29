@@ -30,6 +30,7 @@ class GameEngine {
 
   /// Whether the active hand may be doubled at this table right now.
   bool canDoubleActiveHand(GameState state) {
+    if (!state.hasActiveHand) return false;
     final hand = state.activeHand;
     if (!hand.canDouble) return false;
     if (hand.fromSplit && !rules.doubleAfterSplit) return false;
@@ -37,8 +38,22 @@ class GameEngine {
     return state.bankroll >= hand.bet;
   }
 
+  /// Whether the active hand may be surrendered right now: a late-surrender
+  /// table, the first decision on a dealt (not split) two-card hand, and the
+  /// insurance question already answered. The dealer has peeked by then, so a
+  /// dealer blackjack never reaches this point.
+  bool canSurrenderActiveHand(GameState state) {
+    if (!rules.lateSurrender) return false;
+    if (state.phase != GamePhase.playerTurn) return false;
+    if (state.insuranceState == InsuranceState.offered) return false;
+    if (!state.hasActiveHand) return false;
+    final hand = state.activeHand;
+    return hand.cards.length == 2 && !hand.fromSplit && !hand.surrendered;
+  }
+
   /// Whether the active hand may be split at this table right now.
   bool canSplitActiveHand(GameState state) {
+    if (!state.hasActiveHand) return false;
     final hand = state.activeHand;
     if (!hand.isPair) return false;
     if (state.playerHands.length >= rules.maxSplitHands) return false;
@@ -51,6 +66,10 @@ class GameEngine {
   }
 
   int get numDecks => _deck.numDecks;
+
+  /// Stamp this engine's shoe and count onto [state] — for a fresh state built
+  /// outside the engine, so it does not show another shoe's numbers.
+  GameState attachShoe(GameState state) => _applyCounters(state);
 
   /// Maximum number of main betting spots a player may play at once.
   static const maxSpots = 3;
@@ -87,6 +106,38 @@ class GameEngine {
         spotBets: List<int>.filled(state.spotBets.length, 0),
       );
 
+  /// The bets that REBET would place right now: last round's spot bets laid
+  /// onto however many spots are open today, plus last round's side bet.
+  /// Null when there is nothing to repeat or the bankroll cannot cover it.
+  ({List<int> spots, int side})? rebetFor(GameState state) {
+    if (state.lastSpotBets.every((b) => b == 0)) return null;
+    final spots = [
+      for (var i = 0; i < state.spotBets.length; i++)
+        i < state.lastSpotBets.length ? state.lastSpotBets[i] : 0,
+    ];
+    final main = spots.fold<int>(0, (a, b) => a + b);
+    if (main == 0) return null;
+    final side = state.lastSideBet.clamp(0, sideBetMax);
+    if (main + side > state.bankroll) {
+      // Drop the side bet before giving up on the main wager.
+      if (main > state.bankroll) return null;
+      return (spots: spots, side: 0);
+    }
+    return (spots: spots, side: side);
+  }
+
+  /// Replace the current (empty) bets with last round's. See [rebetFor].
+  GameState rebet(GameState state) {
+    if (state.currentBet > 0 || state.sideBet > 0) return state;
+    final bets = rebetFor(state);
+    if (bets == null) return state;
+    return state.copyWith(
+      spotBets: bets.spots,
+      currentBet: bets.spots.fold<int>(0, (a, b) => a + b),
+      sideBet: bets.side,
+    );
+  }
+
   // ─── Deal ────────────────────────────────────────────────────────────────
 
   GameState dealInitial(GameState state) {
@@ -103,7 +154,7 @@ class GameEngine {
     final firstCards = [for (var _ in funded) _drawAndCount()];
     final d1 = _drawAndCount();
     final secondCards = [for (var _ in funded) _drawAndCount()];
-    final d2 = _deck.draw(faceUp: false); // hole card — not counted yet
+    final d2 = _drawRaw(faceUp: false); // hole card — not counted yet
 
     final playerHands = <HandModel>[
       for (var k = 0; k < funded.length; k++)
@@ -141,7 +192,9 @@ class GameEngine {
       handResults: List<GameResult?>.filled(playerHands.length, null),
       insuranceState: insuranceState,
       roundNet: 0,
-      message: null,
+      freshShoe: false,
+      lastSpotBets: [...state.spotBets],
+      lastSideBet: state.sideBet,
     ));
   }
 
@@ -182,7 +235,8 @@ class GameEngine {
   GameState hit(GameState state) {
     final card = _drawAndCount();
     final hand = state.activeHand.addCard(card);
-    final hands = _replaceActive(state.playerHands, state.activeHandIndex, hand);
+    final hands =
+        _replaceActive(state.playerHands, state.activeHandIndex, hand);
 
     if (hand.isBust || hand.value == 21) {
       return _advanceOrDealer(state.copyWith(playerHands: hands));
@@ -192,11 +246,22 @@ class GameEngine {
 
   GameState stand(GameState state) => _advanceOrDealer(state);
 
+  /// Late surrender: give the active hand up for half its bet back. Settled
+  /// with the rest of the round, once the hole card is turned.
+  GameState surrender(GameState state) {
+    assert(canSurrenderActiveHand(state));
+    final hand = state.activeHand.markSurrendered();
+    final hands =
+        _replaceActive(state.playerHands, state.activeHandIndex, hand);
+    return _advanceOrDealer(state.copyWith(playerHands: hands));
+  }
+
   GameState doubleDown(GameState state) {
     assert(state.activeHand.canDouble);
     final card = _drawAndCount();
     final hand = state.activeHand.addCard(card).markDoubled();
-    final hands = _replaceActive(state.playerHands, state.activeHandIndex, hand);
+    final hands =
+        _replaceActive(state.playerHands, state.activeHandIndex, hand);
     // Doubling stakes one extra base bet for *this* hand only — its own [bet],
     // independent of how many other hands exist.
     final extra = state.activeHand.bet;
@@ -239,9 +304,8 @@ class GameEngine {
     // Split aces receive exactly one card each and stand automatically — resume
     // at the next spot (past both new hands). Other splits keep playing the
     // first of the two new hands (unless it is an auto-stand 21).
-    final searchFrom = c1.rank == Rank.ace
-        ? state.activeHandIndex + 2
-        : state.activeHandIndex;
+    final searchFrom =
+        c1.rank == Rank.ace ? state.activeHandIndex + 2 : state.activeHandIndex;
     final nextIdx = _firstActionable(allHands, searchFrom);
     return next.copyWith(
       activeHandIndex: nextIdx,
@@ -271,6 +335,19 @@ class GameEngine {
         (rules.dealerHitsSoft17 && d.isSoft && d.value == 17);
   }
 
+  /// Whether the dealer has to draw at all this round.
+  ///
+  /// A casino dealer turns the hole card over and stops when nothing is left
+  /// to play for: every hand busted, or every hand is a natural that is paid
+  /// on the spot. Drawing anyway burned shoe cards the player never gets to
+  /// see in a real game, which throws off a counter's sense of the shoe. The
+  /// dealer-bust side bet is the one exception — it is decided by the draw.
+  bool dealerMustPlay(GameState state) {
+    if (state.sideBet > 0) return true;
+    return state.playerHands
+        .any((h) => !h.isBust && !h.isNatural && !h.surrendered);
+  }
+
   /// Draw one additional card for the dealer.
   GameState dealerHit(GameState state) {
     final card = _drawAndCount();
@@ -282,11 +359,12 @@ class GameEngine {
   // ─── New hand / reshuffle ────────────────────────────────────────────────
 
   GameState newHand(GameState state) {
-    if (continuous || _deck.needsReshuffle) {
+    final reshuffled = continuous || _deck.needsReshuffle;
+    if (reshuffled) {
       _deck.reset();
       _counter.reset();
     }
-    return state.copyWith(
+    return _applyCounters(state.copyWith(
       phase: GamePhase.betting,
       playerHands: [const HandModel()],
       activeHandIndex: 0,
@@ -298,9 +376,15 @@ class GameEngine {
       handResults: [null],
       insuranceState: InsuranceState.notOffered,
       roundNet: 0,
-      message: _deck.needsReshuffle ? 'Shoe reshuffled' : null,
-    );
+      // A continuous shuffler reshuffles every hand, so announcing it every
+      // hand would be noise — the count is meaningless there anyway.
+      freshShoe: reshuffled && !continuous,
+    ));
   }
+
+  /// Chips returned on a surrendered hand: half the bet, with an odd chip
+  /// rounded in the player's favour — chips cannot be cut in half.
+  static int surrenderRefund(int bet) => (bet + 1) ~/ 2;
 
   /// Sliding payout multiplier for the dealer-bust side bet.
   /// The returned value is the *profit* multiplier — the stake is added
@@ -323,10 +407,21 @@ class GameEngine {
   // ─── Internals ───────────────────────────────────────────────────────────
 
   CardModel _drawAndCount() {
-    final card = _deck.draw();
+    final card = _drawRaw();
     _counter.update(card);
     _counter.updateDecksRemaining(_deck.remaining);
     return card;
+  }
+
+  /// Draw without counting. If the shoe has run dry mid-round it is reshuffled
+  /// here, and the count restarts with it — the old count described cards
+  /// that are back in the shoe.
+  CardModel _drawRaw({bool faceUp = true}) {
+    if (_deck.isEmpty) {
+      _deck.reset();
+      _counter.reset();
+    }
+    return _deck.draw(faceUp: faceUp);
   }
 
   GameState _applyCounters(GameState state) => state.copyWith(
@@ -348,7 +443,8 @@ class GameEngine {
   }
 
   GameState _advanceOrDealer(GameState state) {
-    final nextIdx = _firstActionable(state.playerHands, state.activeHandIndex + 1);
+    final nextIdx =
+        _firstActionable(state.playerHands, state.activeHandIndex + 1);
     if (nextIdx < state.playerHands.length) {
       return _applyCounters(state.copyWith(activeHandIndex: nextIdx));
     }
@@ -410,6 +506,10 @@ class GameEngine {
     final playerBJ = !fromSplit && player.isBlackjack;
     final dealerBJ = dealer.isBlackjack;
 
+    // Surrender is only offered after the dealer has peeked, so it is never
+    // up against a dealer blackjack.
+    if (player.surrendered) return GameResult.surrender;
+
     if (playerBJ && !dealerBJ) return GameResult.blackjack;
     if (dealerBJ && !playerBJ) return GameResult.loss;
     if (player.isBust) return GameResult.bust;
@@ -428,6 +528,8 @@ class GameEngine {
         return bet * 2;
       case GameResult.push:
         return bet;
+      case GameResult.surrender:
+        return surrenderRefund(bet);
       case GameResult.loss:
       case GameResult.bust:
         return 0;

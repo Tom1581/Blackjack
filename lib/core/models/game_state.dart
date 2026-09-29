@@ -2,7 +2,8 @@ import 'hand_model.dart';
 
 enum GamePhase { betting, dealing, playerTurn, dealerTurn, result }
 
-enum GameResult { win, loss, push, blackjack, bust, dealerBust }
+/// How a hand ended. New values go at the end — online play sends the index.
+enum GameResult { win, loss, push, blackjack, bust, dealerBust, surrender }
 
 enum InsuranceState { notOffered, offered, taken, declined }
 
@@ -39,6 +40,15 @@ class GameState {
 
   final String? message;
 
+  /// True for the betting phase that follows a reshuffle, so the table can say
+  /// so. A counter who has the HUD hidden has to know the count went back to
+  /// zero — a silent reshuffle quietly ruins every count after it.
+  final bool freshShoe;
+
+  /// The spot bets and side bet of the last round dealt, for REBET.
+  final List<int> lastSpotBets;
+  final int lastSideBet;
+
   const GameState({
     this.phase = GamePhase.betting,
     this.playerHands = const [HandModel()],
@@ -57,9 +67,18 @@ class GameState {
     this.insuranceState = InsuranceState.notOffered,
     this.roundNet = 0,
     this.message,
+    this.freshShoe = false,
+    this.lastSpotBets = const [],
+    this.lastSideBet = 0,
   });
 
   HandModel get activeHand => playerHands[activeHandIndex];
+
+  /// Whether [activeHand] points at a real hand. It does not when every hand
+  /// is already settled — for example a natural blackjack while the insurance
+  /// question is still open — and reading [activeHand] then throws.
+  bool get hasActiveHand =>
+      activeHandIndex >= 0 && activeHandIndex < playerHands.length;
 
   bool get allHandsPlayed => activeHandIndex >= playerHands.length;
 
@@ -84,6 +103,9 @@ class GameState {
     InsuranceState? insuranceState,
     int? roundNet,
     String? message,
+    bool? freshShoe,
+    List<int>? lastSpotBets,
+    int? lastSideBet,
   }) {
     return GameState(
       phase: phase ?? this.phase,
@@ -103,6 +125,9 @@ class GameState {
       insuranceState: insuranceState ?? this.insuranceState,
       roundNet: roundNet ?? this.roundNet,
       message: message ?? this.message,
+      freshShoe: freshShoe ?? this.freshShoe,
+      lastSpotBets: lastSpotBets ?? this.lastSpotBets,
+      lastSideBet: lastSideBet ?? this.lastSideBet,
     );
   }
 }

@@ -16,3 +16,11 @@ final weeklyBoardProvider =
   ref.watch(boardRefreshTickProvider);
   return WeeklyBoardService.fetch();
 });
+
+/// This week's accuracy league — the same players ranked by how often their
+/// decisions matched the coach.
+final weeklyAccuracyBoardProvider =
+    FutureProvider.autoDispose<WeeklyBoard>((ref) async {
+  ref.watch(boardRefreshTickProvider);
+  return WeeklyBoardService.fetchAccuracy();
+});

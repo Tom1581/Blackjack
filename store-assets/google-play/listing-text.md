@@ -38,56 +38,46 @@ nothing else in this category has.
 
 ```
 Card counting, taught properly. Hi-Lo Blackjack Trainer is a practice table
-built for players who want to drill card counting and basic strategy until both
+built for players who want to drill basic strategy and card counting until both
 are automatic — then test them against friends in real time.
 
-A built-in coach scores every decision you make against basic strategy and
-tells you when a play was wrong — "16 vs 5, basic strategy says Stand" — so
-mistakes stop being invisible. Your accuracy is tracked hand after hand.
+A built-in coach scores every decision against the correct play for your
+table and tells you when a play was wrong — "16 vs 5, basic strategy says
+Stand". Accuracy is tracked by hard totals, soft totals and pairs, and the
+hands you miss most are listed so you can drill them.
 
-The running count and true count update as you play, so you can see the shoe
-turn favorable and learn what to do about it. Play a hand, size your bet,
-and watch how penetration changes the edge.
+TRAINING CENTER
+- Strategy Drill: flash-card hands with instant feedback, or only your misses
+- Strategy Chart: the exact chart the coach grades you on, for your rules
+- Daily Count Drill: tag 20 cards +1, 0 or -1 against the clock
+- Speed Count: cards flash by at table pace, including the deck countdown
+- True Count: convert running count to true count using the discard tray
+- Index Plays: the Illustrious 18 and Fab 4, drilled at the counts that matter
 
-PLAY ONLINE WITH FRIENDS
-Host a private table and share its room code, or open the lobby and join a
-table someone else has already started. Up to five players share one dealer
-and one shoe, with the running count on screen for everyone — so you can
-practice counting on a live table instead of alone.
+PLAY LIKE A COUNTER
+- Hi-Lo running count and true count, live as cards are dealt
+- Hide the count and the dealer quizzes your running count every 5 hands
+- Index plays: turn them on and the coach follows the count, not just the chart
+- Bet spread coach: shows the bet the true count calls for, and checks yours
+- A discard tray on the felt, so you estimate decks left the way pros do
+- Insurance graded against the +3 index
 
 CHOOSE YOUR TABLE
-Strategy is not universal — the correct play changes with the house rules. Pick
-the table you are practising for and both the dealer and the coach follow it:
+Strategy is not universal. Pick the table you are practising for and the
+dealer, the coach, the chart and the felt all follow it:
+- 2, 6 or 8 decks, or a continuous shuffler — with the right chart for each
 - Dealer hits or stands on soft 17
-- Double after split, or not
-- Doubling on any two cards, or only on 9-11
+- Late surrender, double after split, doubling on any two or 9-11 only
 - 3:2 or 6:5 blackjack, so you can see exactly what a 6:5 table costs you
 
-BASIC STRATEGY COACH
-- Every hit, stand, double and split is scored against the correct play
-- The recommended move is highlighted while you learn, and can be switched off
-- A running accuracy score, so you can see yourself improving
-- The chart is recalculated for whichever table you select, not copied from
-  one game. Most charts you find online are for a different rule set.
+PLAY ONLINE WITH FRIENDS
+Host a private table and share its room code, or join an open table. Up to
+five players share one dealer and one shoe, with the running count on screen.
 
-CARD COUNTING
-- Hi-Lo running count and true count, live as cards are dealt
-- Shoe penetration tracking, so you can see when the count matters
-- Multiple shoe modes: 6-deck, 2-deck, and continuous shuffle
-- Continuous shuffle mode included on purpose, to show why counting cannot
-  beat a CSM
-
-FULL BLACKJACK RULES
-- Hit, stand, double on any two cards, split up to four hands, insurance
-- Split aces draw one card; a two-card 21 from a split pays even money
-- Dealer hits soft 17; blackjack pays 3:2
-- Identical rules whether you play solo or online, so practice transfers
-
-PRACTICE TOOLS
-- Bankroll tracking across sessions
-- Stats and hand history
-- Weekly leaderboard against other players, reset every Monday
-- Quick portrait rounds that fit in a spare minute
+WEEKLY LEAGUES
+- Profit league and an Accuracy league — who made the best decisions
+- Lifetime stats: hands, win rate, blackjacks, surrenders, net at the table
+- Daily bonus streak
 
 Free to play, with ads.
 
@@ -99,17 +89,16 @@ cash out virtual chips. Nothing here is a guarantee of results in a casino.
 ## Release Notes (500 char limit)
 
 ```
-New: a basic strategy coach.
+New in 1.3:
 
-- Every hit, stand, double and split is scored against the correct play
-- It tells you what you should have done, and why
-- Your accuracy is tracked so you can watch yourself improve
+- Late surrender tables, with the correct surrender chart
+- Index plays: Illustrious 18 and Fab 4, at the table and as a drill
+- Bet spread coach: the bet your true count calls for
+- Accuracy league next to the profit league
+- 2-deck shoes now use the real 2-deck strategy chart
 
-Also new:
-- Choose your table rules — the chart is recalculated to match
-- Play online with friends, up to 5 players per table
-- Weekly leaderboard against real players
-- Sound effects, daily bonus, and a quick intro
+Also: the table fits smaller phones, and every chart cell is checked against
+a published strategy engine.
 ```
 
 ## Notes for whoever edits this next

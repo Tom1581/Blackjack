@@ -11,31 +11,48 @@ class PlayerArea extends ConsumerWidget {
 
   const PlayerArea({super.key, this.compact = false});
 
+  /// Room the score badge and the gap above it take under the cards.
+  static const _badgeAllowance = 30.0;
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(tableProvider);
     final hands = state.playerHands;
-    final cardWidth = compact ? 60.0 : 72.0;
+    final split = hands.length > 1;
+    final gap = compact ? 6.0 : 8.0;
 
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        if (hands.length == 1)
-          _handRow(hands[0], 0, state, isSplit: false, cardWidth: cardWidth)
-        else
-          SizedBox(
-            height: compact ? 176 : 210,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              itemCount: hands.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (_, i) => _handRow(hands[i], i, state,
-                  isSplit: true, cardWidth: cardWidth),
+    // Size the cards to the space the felt actually leaves. They used to be a
+    // fixed size, so a short phone showing three hands and a coaching note
+    // overflowed the bottom of the table.
+    return LayoutBuilder(builder: (context, constraints) {
+      final pointer = split ? (compact ? 30.0 : 36.0) : 0.0;
+      final preferred = compact ? 60.0 : 72.0;
+      final fits =
+          (constraints.maxHeight - pointer - gap - _badgeAllowance) / 1.4;
+      final cardWidth =
+          fits.isFinite ? fits.clamp(30.0, preferred).toDouble() : preferred;
+
+      return Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          if (!split)
+            _handRow(hands[0], 0, state,
+                isSplit: false, cardWidth: cardWidth, pointer: 0)
+          else
+            SizedBox(
+              height: pointer + cardWidth * 1.4 + gap + _badgeAllowance,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: hands.length,
+                separatorBuilder: (_, __) => const SizedBox(width: 14),
+                itemBuilder: (_, i) => _handRow(hands[i], i, state,
+                    isSplit: true, cardWidth: cardWidth, pointer: pointer),
+              ),
             ),
-          ),
-      ],
-    );
+        ],
+      );
+    });
   }
 
   Widget _handRow(
@@ -44,6 +61,7 @@ class PlayerArea extends ConsumerWidget {
     GameState state, {
     required bool isSplit,
     required double cardWidth,
+    required double pointer,
   }) {
     final isActive =
         index == state.activeHandIndex && state.phase == GamePhase.playerTurn;
@@ -59,7 +77,7 @@ class PlayerArea extends ConsumerWidget {
         // actually renders the pill.
         if (isSplit)
           SizedBox(
-            height: 36,
+            height: pointer,
             child:
                 showPointer ? const Center(child: _ActiveHandPointer()) : null,
           ),
@@ -216,7 +234,11 @@ class _HandBadge extends StatelessWidget {
     Color textColor = Colors.white;
     String label = '${hand.value}';
 
-    if (hand.isBust) {
+    if (hand.surrendered) {
+      label = 'SURRENDERED';
+      bgColor = Colors.black.withValues(alpha: 0.65);
+      textColor = AppColors.neutral;
+    } else if (hand.isBust) {
       label = 'BUST';
       bgColor = AppColors.unfavorable.withValues(alpha: 0.85);
     } else if (hand.isBlackjack) {

@@ -1,5 +1,14 @@
 # Handover — what is left, and who can actually do it
 
+> **Latest pass: 2026-09-29 (1.3.0+11)** — the whole roadmap is built: two-deck
+> chart, late surrender, index plays, bet-spread coach, accuracy league. See
+> "What is built, and what is next" below. One new console step: **A8**.
+>
+> **Resuming? Start with `PICK_UP_HERE.md`.** Status as of 2026-09-29: A1
+> (rewarded unit), A3 (rankings migration) and A4 (anonymous sign-ins) are
+> **done**; the sections below were written before that and are kept for
+> reference.
+
 Checked live on 2026-08-26. Most of what remains is **console work in your
 Google and Supabase accounts**, which no coding agent can do for you. The
 genuine code tasks are in part B and there are not many.
@@ -216,28 +225,103 @@ being set up".
 
 ## What is built, and what is next
 
-**Done since the review:** selectable table rules (`RuleSet`) with the strategy
-chart recalculated per table, the action buttons gated on the table's actual
-doubling and splitting rules, and online tables defaulting to invite-only.
+### 2026-09-28 audit — version 1.2.0+10
 
-**Next, in order:**
+Every defect below was reproduced before it was fixed, and each has a
+regression test in `test/table_regressions_test.dart` or `test/training_test.dart`
+(372 tests passing, up from 321; `flutter analyze` 0 errors / 0 warnings).
 
-1. **Per-category mastery** — record every decision by hand type (hard / soft /
-   pair), dealer up-card and rule set, rather than one global accuracy number.
-   This had to wait for `RuleSet`, since "correct" depends on the table.
-2. **Weak-hand drills** generated from the player's own mistakes, plus separate
-   Hard Totals, Soft Totals, Pairs and Speed Round drills.
-3. **Single and double deck charts.** Not offered today on purpose — they are
-   genuinely different from the multi-deck chart, and shipping them against the
-   multi-deck one would teach the wrong play.
-4. **Late surrender.** Modelled in `RuleSet` but no preset enables it, because
-   the table has no surrender action yet. It needs an engine action, a button
-   in both UIs, and a new result type — half-adding it would be worse than not
-   having it.
-5. **Counting curriculum** — count-down drills, true-count maths, and a clearly
-   labelled index-deviation set after basic strategy is solid.
-6. **Accuracy league** alongside the profit league. Accuracy is harder to fake
-   and matches what the app claims to teach.
+**Game-rule and system bugs fixed**
+
+| # | Bug | Effect on players |
+|---|-----|-------------------|
+| 1 | Dealer badge read `hand.value`, which includes the face-down hole card | Showed "17" over a lone ten on every hand — the hole card was given away (solo, and on the online host's screen) |
+| 2 | Dealer ace + player natural left `activeHandIndex` past the end | RangeError building the action bar (~0.4% of hands) |
+| 3 | Changing rules/shoe from the lobby mid-round replaced the round | The stake, already deducted, vanished |
+| 4 | Rule change read a derived provider before Riverpod invalidated it | First rules change after launch: dealer kept the old rules while the coach graded the new ones |
+| 5 | Felt text hard-coded "3 to 2" and "hit soft 17" | Wrong rules printed on the 6:5 and S17 tables |
+| 6 | Stats screen read `hands_played`, `wins`, … that nothing wrote; provider cached forever | Stats always 0 hands / 0% |
+| 7 | Reshuffle message computed after the reset and never shown; state kept the old count until the next deal | Count silently reset — fatal for anyone counting with the HUD off |
+| 8 | Solo dealer drew on all-bust / all-natural rounds (online already fixed for busts) | Burned shoe cards a real dealer never deals |
+| 9 | True count divided by decks rounded **up** | TC understated late in the shoe (RC +6 with 1.5 decks read +3, not +4) — now nearest half deck |
+| 10 | Count HUD, shoe and hands-per-round not persisted | Reset every launch |
+| 11 | "Atlantic City" blurb claimed 8 decks; no 8-deck shoe existed | Now an 8 D shoe option, and honest wording |
+| 12 | Bankroll pill rounded ("1.0k" for $1,049); bet tabs overflowed on 360dp phones | Exact bankroll; layout fixed |
+| 13 | An empty shoe mid-round would throw | Now reshuffles (and resets the count) instead |
+
+**Features added** (the Hi-Lo training was extended, nothing removed — the
+Daily Count Drill, count HUD and coach all work exactly as before)
+
+- **Training Center** (`lib/features/training/`): Strategy Drill (hard / soft /
+  pairs / *my mistakes*), Speed Count (incl. deck countdown), True Count drill,
+  and the existing Daily Count Drill.
+- **Strategy chart screen** — computed by `BasicStrategy.best`, so it can never
+  disagree with the coach. Also reachable from the table's top rail.
+- **Count check quiz** — with the HUD hidden the table asks for the running
+  count every 5 hands; accuracy shows on the stats screen.
+- **Per-category mastery + most-missed cells** (roadmap item 1 below).
+- **Discard tray** on the felt (no number — estimating decks is the skill).
+- **Insurance tip**: insure at TC ≥ +3; shows the live TC only if the HUD is on.
+- **REBET**, card deal slide-in animation, radial felt, curved felt text.
+
+**Still not done, on purpose:** double-deck chart (the 2 D shoe now says the
+coach uses the multi-deck chart), surrender, Illustrious 18 deviations — all
+three change what "correct" means and need their own tested grids first.
+
+### 2026-09-29 — roadmap finished, version 1.3.0+11
+
+Every roadmap item from the audit is now built, each with its own tests
+(489 tests passing; `flutter analyze` 0 errors / 0 warnings; release AAB
+builds).
+
+| Feature | Where | How it was verified |
+|---|---|---|
+| **Two-deck strategy chart** | `basic_strategy.dart` (`decks:`) | Every cell of 48 published charts (2/6/8 decks × H17/S17 × DAS × 3 doubling rules × surrender) in `test/strategy_reference_test.dart`; the 168 cells that differ re-derived with our own EV calculator (`tool/strategy_check/`) — 168/168 agree |
+| **Late surrender** | engine, action bar, coach, chart, stats; presets *H17 + Surrender*, *S17 + Surrender* | `test/surrender_test.dart`; chart cells in the reference test |
+| **Index plays** (Illustrious 18 + Fab 4, H17/S17) | `deviations.dart`, `table_coach.dart`, lobby toggle, Index Drill | `test/deviations_test.dart` — every index flips exactly at its number (floored true count) |
+| **Bet-spread coach** (true count − 1 units, 1–8) | `bet_ramp.dart`, betting panel, deal check, stats | `test/bet_ramp_test.dart` |
+| **Accuracy league** | `weekly_board_service.dart`, leaderboard PROFIT / ACCURACY toggle | `test/weekly_board_test.dart`, `test/leaderboard_widget_test.dart`; the SQL validated on a real Supabase Postgres (`tool/sql_checks/`) |
+
+Also fixed on the way: a round's dealer sequence could keep writing to a
+disposed table (now stops), and the felt overflowed on short phones (360×600,
+320×568) with three hands and a coaching note — cards now size to the space
+(`test/table_fit_test.dart`, measured with the real Roboto font, not the test
+font, which is twice as wide and reports overflows no phone shows).
+
+**Design rules worth keeping**
+
+- Index plays only apply on 4+ deck shoes and never on a continuous shuffler.
+  A two-deck game has different indices; the app does not teach those.
+- An index entry only applies when basic strategy is already making one of
+  its two plays — so 8,8 v 10 still splits and a surrender cell stays a
+  surrender. A departure from the chart is recorded as an index decision
+  only, never as a chart miss.
+- With the count HUD hidden, a hand an index play governs gets no hint (it
+  would give the count away); the bet coach shows only its rule, not the
+  number.
+
+**Needs the owner (A8):** apply
+`supabase/migrations/20260929000000_weekly_accuracy.sql` in the SQL Editor.
+It is safe with older app versions live: the original
+`submit_weekly_ranking` API remains available. Until it is applied the app
+falls back to the original function (checked against the live server: it answers
+`PGRST202` / `42703`, which the app treats as "not set up yet") and the
+Accuracy tab says the rankings are being set up.
+
+```bash
+curl -s "https://yktyobprlradqtvmqfki.supabase.co/rest/v1/weekly_rankings?select=decisions&limit=1" \
+  -H "apikey: sb_publishable_foYtDGPKyHV_wpdgjPcsjg_0x25jZMm"
+# want: [] or rows    (now: 42703 "column ... decisions does not exist")
+```
+
+### Still not built, on purpose
+
+- **Single deck.** A different chart again and different indices; not
+  offered, not verified.
+- **Resplitting aces.** `RuleSet.resplitAces` exists but no preset enables it
+  and the engine does not deal the resplit; the reference charts assume no
+  resplit, so this matches what is taught.
+- **Two-deck index plays.** See above.
 
 ## The thing none of this fixes
 

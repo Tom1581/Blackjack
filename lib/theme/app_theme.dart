@@ -38,6 +38,7 @@ class AppColors {
   static const btnSplit = Color(0xFF7A4E0A);
   static const btnDouble = Color(0xFF0D3E74);
   static const btnHit = Color(0xFF155225);
+  static const btnSurrender = Color(0xFF3A3D45);
 
   // Chip colors (red, green, blue, black, purple)
   static const chipColors = [

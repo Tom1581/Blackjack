@@ -18,6 +18,9 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
   Timer? _ticker;
   Duration _untilReset = Duration.zero;
 
+  /// Profit league or accuracy league.
+  bool _accuracy = false;
+
   @override
   void initState() {
     super.initState();
@@ -37,7 +40,18 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final boardAsync = ref.watch(weeklyBoardProvider);
+    final boardAsync = ref.watch(
+        _accuracy ? weeklyAccuracyBoardProvider : weeklyBoardProvider);
+    final header = Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _Header(untilReset: _untilReset, accuracy: _accuracy),
+        _MetricToggle(
+          accuracy: _accuracy,
+          onChanged: (v) => setState(() => _accuracy = v),
+        ),
+      ],
+    );
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(
@@ -49,10 +63,17 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
         ),
         child: SafeArea(
           child: boardAsync.when(
-            loading: () => const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation(AppColors.gold),
-              ),
+            loading: () => Column(
+              children: [
+                header,
+                const Expanded(
+                  child: Center(
+                    child: CircularProgressIndicator(
+                      valueColor: AlwaysStoppedAnimation(AppColors.gold),
+                    ),
+                  ),
+                ),
+              ],
             ),
             error: (e, _) => Center(
               child: Text('$e',
@@ -63,9 +84,17 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
               if (entries.isEmpty) {
                 return Column(
                   children: [
-                    _Header(untilReset: _untilReset),
+                    header,
                     if (!board.isLive) _BoardNotice(status: board.status),
-                    Expanded(child: _EmptyBoard(status: board.status)),
+                    Expanded(
+                      child: _EmptyBoard(
+                          status: board.status, accuracy: _accuracy),
+                    ),
+                    if (_accuracy &&
+                        board.me != null &&
+                        board.me!.decisions > 0)
+                      _UserPinnedRow(
+                          rank: 0, entry: board.me!, accuracy: true),
                   ],
                 );
               }
@@ -78,16 +107,22 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
 
               return Column(
                 children: [
-                  _Header(untilReset: _untilReset),
+                  header,
                   if (!board.isLive) _BoardNotice(status: board.status),
-                  if (gap != null && gap > 0) _ChaseBanner(gap: gap),
+                  if (!_accuracy && gap != null && gap > 0)
+                    _ChaseBanner(gap: gap),
                   const SizedBox(height: 4),
-                  _Podium(entries: top3),
+                  _Podium(entries: top3, accuracy: _accuracy),
                   const SizedBox(height: 16),
                   _SectionLabel(
-                    label: board.playerCount == 1
-                        ? 'THIS WEEK'
-                        : '${board.playerCount} PLAYERS THIS WEEK',
+                    label: _accuracy
+                        ? '${board.playerCount} PLAYER'
+                            '${board.playerCount == 1 ? '' : 'S'} · '
+                            '${WeeklyBoardService.minAccuracyDecisions}+ '
+                            'DECISIONS'
+                        : board.playerCount == 1
+                            ? 'THIS WEEK'
+                            : '${board.playerCount} PLAYERS THIS WEEK',
                   ),
                   const SizedBox(height: 6),
                   Expanded(
@@ -99,12 +134,16 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
                             itemBuilder: (_, i) => _RankRow(
                               rank: rest[i].rank,
                               entry: rest[i],
+                              accuracy: _accuracy,
                             ),
                           ),
                   ),
                   // Pin the player when they are nowhere on the visible board.
-                  if (userIndex < 0 && me != null && me.handsPlayed > 0)
-                    _UserPinnedRow(rank: me.rank, entry: me),
+                  if (userIndex < 0 &&
+                      me != null &&
+                      (_accuracy ? me.decisions > 0 : me.handsPlayed > 0))
+                    _UserPinnedRow(
+                        rank: me.rank, entry: me, accuracy: _accuracy),
                 ],
               );
             },
@@ -208,10 +247,62 @@ class _ChaseBanner extends StatelessWidget {
   }
 }
 
+/// Profit | Accuracy.
+class _MetricToggle extends StatelessWidget {
+  final bool accuracy;
+  final ValueChanged<bool> onChanged;
+
+  const _MetricToggle({required this.accuracy, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    Widget tab(String label, bool value) {
+      final selected = accuracy == value;
+      return Expanded(
+        child: GestureDetector(
+          onTap: () => onChanged(value),
+          child: AnimatedContainer(
+            duration: const Duration(milliseconds: 150),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: selected ? AppColors.gold : Colors.transparent,
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: selected ? AppColors.wood : Colors.white70,
+                fontSize: 12,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 1.5,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.3),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.gold.withValues(alpha: 0.3)),
+      ),
+      child: Row(
+        children: [tab('PROFIT', false), tab('ACCURACY', true)],
+      ),
+    );
+  }
+}
+
 /// Nobody has a score yet this week — including you.
 class _EmptyBoard extends StatelessWidget {
   final BoardStatus status;
-  const _EmptyBoard({required this.status});
+  final bool accuracy;
+  const _EmptyBoard({required this.status, this.accuracy = false});
 
   @override
   Widget build(BuildContext context) {
@@ -224,9 +315,11 @@ class _EmptyBoard extends StatelessWidget {
             CrownIcon(color: AppColors.gold.withValues(alpha: 0.8), size: 40),
             const SizedBox(height: 18),
             Text(
-              status == BoardStatus.live
-                  ? 'The board is wide open'
-                  : 'No score yet this week',
+              accuracy
+                  ? 'Nobody has qualified yet'
+                  : status == BoardStatus.live
+                      ? 'The board is wide open'
+                      : 'No score yet this week',
               textAlign: TextAlign.center,
               style: const TextStyle(
                 color: Colors.white,
@@ -236,10 +329,16 @@ class _EmptyBoard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             Text(
-              status == BoardStatus.live
-                  ? 'Nobody has posted a score this week. Play a few hands and '
-                      'the top spot is yours.'
-                  : 'Play a few hands and your weekly profit shows up here.',
+              accuracy
+                  ? 'Make ${WeeklyBoardService.minAccuracyDecisions} decisions '
+                      'at the table this week — every hit, stand, double, '
+                      'split and surrender the coach grades — to join the '
+                      'accuracy league.'
+                  : status == BoardStatus.live
+                      ? 'Nobody has posted a score this week. Play a few hands '
+                          'and the top spot is yours.'
+                      : 'Play a few hands and your weekly profit shows up '
+                          'here.',
               textAlign: TextAlign.center,
               style: TextStyle(
                 color: Colors.white.withValues(alpha: 0.6),
@@ -257,7 +356,8 @@ class _EmptyBoard extends StatelessWidget {
 
 class _Header extends StatelessWidget {
   final Duration untilReset;
-  const _Header({required this.untilReset});
+  final bool accuracy;
+  const _Header({required this.untilReset, this.accuracy = false});
 
   String _format(Duration d) {
     if (d.isNegative) return 'Resetting…';
@@ -279,11 +379,11 @@ class _Header extends StatelessWidget {
             icon: const Icon(Icons.arrow_back_ios, color: AppColors.gold),
             onPressed: () => Navigator.of(context).pop(),
           ),
-          const Expanded(
+          Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
+                const Text(
                   'WEEKLY LEADERBOARD',
                   style: TextStyle(
                     color: Colors.white,
@@ -292,10 +392,10 @@ class _Header extends StatelessWidget {
                     letterSpacing: 2,
                   ),
                 ),
-                SizedBox(height: 2),
+                const SizedBox(height: 2),
                 Text(
-                  'Top earners this week',
-                  style: TextStyle(
+                  accuracy ? 'Best decisions this week' : 'Top earners this week',
+                  style: const TextStyle(
                     color: AppColors.neutral,
                     fontSize: 11,
                     letterSpacing: 0.5,
@@ -339,7 +439,8 @@ class _Header extends StatelessWidget {
 
 class _Podium extends StatelessWidget {
   final List<LeaderboardEntry> entries;
-  const _Podium({required this.entries});
+  final bool accuracy;
+  const _Podium({required this.entries, this.accuracy = false});
 
   @override
   Widget build(BuildContext context) {
@@ -353,6 +454,7 @@ class _Podium extends StatelessWidget {
             child: _PodiumColumn(
               rank: 2,
               entry: entries[1],
+              accuracy: accuracy,
               crownColor: const Color(0xFFB9C4CD), // silver
               height: 130,
             ),
@@ -361,6 +463,7 @@ class _Podium extends StatelessWidget {
             child: _PodiumColumn(
               rank: 1,
               entry: entries[0],
+              accuracy: accuracy,
               crownColor: AppColors.gold,
               height: 165,
             ),
@@ -369,6 +472,7 @@ class _Podium extends StatelessWidget {
             child: _PodiumColumn(
               rank: 3,
               entry: entries[2],
+              accuracy: accuracy,
               crownColor: const Color(0xFFCD7F32), // copper
               height: 110,
             ),
@@ -384,12 +488,14 @@ class _PodiumColumn extends StatelessWidget {
   final LeaderboardEntry entry;
   final Color crownColor;
   final double height;
+  final bool accuracy;
 
   const _PodiumColumn({
     required this.rank,
     required this.entry,
     required this.crownColor,
     required this.height,
+    this.accuracy = false,
   });
 
   @override
@@ -439,9 +545,9 @@ class _PodiumColumn extends StatelessWidget {
         ),
         const SizedBox(height: 2),
         Text(
-          _formatProfit(entry.profit),
+          _metricText(entry, accuracy),
           style: TextStyle(
-            color: _profitColor(entry.profit),
+            color: _metricColor(entry, accuracy),
             fontSize: 12,
             fontWeight: FontWeight.w700,
           ),
@@ -510,15 +616,23 @@ class _SectionLabel extends StatelessWidget {
               ),
             ),
           ),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            child: Text(
-              label,
-              style: TextStyle(
-                color: AppColors.gold.withValues(alpha: 0.7),
-                fontSize: 10,
-                letterSpacing: 3,
-                fontWeight: FontWeight.w700,
+          // The label wins over the rules either side; on a narrow phone it
+          // scales down rather than overflowing.
+          Flexible(
+            flex: 6,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  style: TextStyle(
+                    color: AppColors.gold.withValues(alpha: 0.7),
+                    fontSize: 10,
+                    letterSpacing: 3,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
               ),
             ),
           ),
@@ -544,7 +658,12 @@ class _SectionLabel extends StatelessWidget {
 class _RankRow extends StatelessWidget {
   final int rank;
   final LeaderboardEntry entry;
-  const _RankRow({required this.rank, required this.entry});
+  final bool accuracy;
+  const _RankRow({
+    required this.rank,
+    required this.entry,
+    this.accuracy = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -617,10 +736,22 @@ class _RankRow extends StatelessWidget {
               ],
             ),
           ),
+          if (accuracy)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Text(
+                '${entry.decisions}',
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.45),
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ),
           Text(
-            _formatProfit(entry.profit),
+            _metricText(entry, accuracy),
             style: TextStyle(
-              color: _profitColor(entry.profit),
+              color: _metricColor(entry, accuracy),
               fontSize: 14,
               fontWeight: FontWeight.w800,
             ),
@@ -634,7 +765,12 @@ class _RankRow extends StatelessWidget {
 class _UserPinnedRow extends StatelessWidget {
   final int rank;
   final LeaderboardEntry entry;
-  const _UserPinnedRow({required this.rank, required this.entry});
+  final bool accuracy;
+  const _UserPinnedRow({
+    required this.rank,
+    required this.entry,
+    this.accuracy = false,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -670,11 +806,23 @@ class _UserPinnedRow extends StatelessWidget {
               ),
             ),
           ),
-          _RankRow(rank: rank, entry: entry),
+          _RankRow(rank: rank, entry: entry, accuracy: accuracy),
         ],
       ),
     );
   }
+}
+
+/// The number a row is ranked on: profit, or accuracy.
+String _metricText(LeaderboardEntry e, bool accuracy) =>
+    accuracy ? '${e.accuracyPercent}%' : _formatProfit(e.profit);
+
+Color _metricColor(LeaderboardEntry e, bool accuracy) {
+  if (!accuracy) return _profitColor(e.profit);
+  final pct = e.accuracyPercent;
+  if (pct >= 95) return AppColors.favorable;
+  if (pct >= 85) return AppColors.gold;
+  return AppColors.unfavorable;
 }
 
 String _formatProfit(int v) {

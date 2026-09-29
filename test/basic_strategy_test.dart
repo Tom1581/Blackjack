@@ -477,9 +477,15 @@ void main() {
   });
 
   group('Every shipped preset is coherent', () {
-    test('none advertises surrender, because the table cannot surrender', () {
-      for (final preset in RuleSet.presets) {
-        expect(preset.lateSurrender, isFalse, reason: preset.name);
+    test('a preset that advertises surrender can actually surrender', () {
+      // This used to assert that no preset offered surrender, because the
+      // table had no surrender action. It has one now; see
+      // test/surrender_test.dart for the action itself.
+      final surrenderTables =
+          RuleSet.presets.where((p) => p.lateSurrender).toList();
+      expect(surrenderTables, isNotEmpty);
+      for (final preset in surrenderTables) {
+        expect(preset.summary, contains('LS'), reason: preset.name);
       }
     });
 

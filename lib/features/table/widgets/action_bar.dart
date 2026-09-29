@@ -16,6 +16,10 @@ class ActionBar extends ConsumerWidget {
     // doubling rule, after a split, and inside the hand limit.
     final canDouble = ref.watch(canDoubleProvider);
     final canSplit = ref.watch(canSplitProvider);
+    // A surrender table shows the button all round, greyed out once the hand
+    // has moved past its first decision, so the layout never jumps.
+    final surrenderTable = ref.watch(tableRulesProvider).lateSurrender;
+    final canSurrender = ref.watch(canSurrenderProvider);
     // The coach's recommendation, when the player has asked to see it.
     final hint =
         StrategyCoach.hintsEnabled ? ref.watch(strategyHintProvider) : null;
@@ -34,9 +38,25 @@ class ActionBar extends ConsumerWidget {
           ),
         ],
       ),
-      padding: const EdgeInsets.fromLTRB(12, 10, 12, 18),
+      padding: EdgeInsets.fromLTRB(
+          surrenderTable ? 8 : 12, 10, surrenderTable ? 8 : 12, 18),
       child: Row(
         children: [
+          if (surrenderTable) ...[
+            _ActionBtn(
+              label: 'Surrender',
+              recommended: hint == StrategyMove.surrender,
+              icon: Icons.flag_outlined,
+              color: AppColors.btnSurrender,
+              accentColor: const Color(0xFFC9CED8),
+              enabled: canSurrender,
+              onTap: () {
+                HapticFeedback.mediumImpact();
+                n.surrender();
+              },
+            ),
+            const SizedBox(width: 6),
+          ],
           _ActionBtn(
             label: 'Stand',
             recommended: hint == StrategyMove.stand,
@@ -161,13 +181,19 @@ class _ActionBtn extends StatelessWidget {
               children: [
                 Icon(icon, color: accentColor, size: 22),
                 const SizedBox(height: 4),
-                Text(
-                  label,
-                  style: TextStyle(
-                    color: accentColor,
-                    fontSize: 11,
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0.5,
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 2),
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    child: Text(
+                      label,
+                      style: TextStyle(
+                        color: accentColor,
+                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.5,
+                      ),
+                    ),
                   ),
                 ),
               ],

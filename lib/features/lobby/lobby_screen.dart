@@ -10,6 +10,7 @@ import '../../core/audio/sound_service.dart';
 import '../../core/progress/daily_streak.dart';
 import '../../core/rules/rule_set.dart';
 import '../../core/rules/rules_store.dart';
+import '../../core/settings/table_prefs.dart';
 import '../../core/strategy/strategy_coach.dart';
 import '../../theme/app_theme.dart';
 import '../leaderboard/leaderboard_providers.dart';
@@ -23,6 +24,7 @@ import '../stats/stats_screen.dart';
 import '../table/table_provider.dart';
 import '../table/table_screen.dart';
 import '../table/widgets/card_widget.dart';
+import '../training/training_center_screen.dart';
 
 class LobbyScreen extends ConsumerStatefulWidget {
   const LobbyScreen({super.key});
@@ -167,6 +169,17 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
                         HapticFeedback.lightImpact();
                         Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => const DailyCountDrillScreen(),
+                        ));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _SecondaryButton(
+                      icon: Icons.school_outlined,
+                      label: 'TRAINING  CENTER',
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const TrainingCenterScreen(),
                         ));
                       },
                     ),
@@ -543,7 +556,7 @@ class _BankrollCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '\$$bankroll',
+                  '\$${formatChips(bankroll)}',
                   style: const TextStyle(
                     color: Colors.white,
                     fontSize: 30,
@@ -1065,8 +1078,9 @@ class _RulePickerRow extends ConsumerWidget {
               ],
               const SizedBox(height: 4),
               Text(
-                'Single and double deck use different strategy charts and are '
-                'not offered yet.',
+                'The number of decks is the Shoe setting; the coach uses the '
+                'right chart for 2, 6 and 8 decks. Single deck is not '
+                'offered.',
                 style: TextStyle(
                   color: Colors.white.withValues(alpha: 0.4),
                   fontSize: 11.5,
@@ -1255,6 +1269,169 @@ class _HintsToggleRowState extends State<_HintsToggleRow> {
   }
 }
 
+/// Grade against the Illustrious 18 / Fab 4 index plays.
+class _IndexPlaysToggleRow extends ConsumerWidget {
+  const _IndexPlaysToggleRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(indexPlaysProvider);
+    return Row(
+      children: [
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Index plays (Illustrious 18)',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'The coach follows the count, not just the chart. '
+                '4+ deck shoes.',
+                style: TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        Switch(
+          value: enabled,
+          onChanged: (v) {
+            ref.read(indexPlaysProvider.notifier).state = v;
+            TablePrefs.setIndexPlays(v);
+          },
+        ),
+      ],
+    );
+  }
+}
+
+/// Show the bet the true count calls for, in the player's own units.
+class _BetCoachRow extends ConsumerWidget {
+  const _BetCoachRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(betCoachProvider);
+    final unit = ref.watch(betUnitProvider);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            const Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Bet spread coach',
+                    style: TextStyle(color: Colors.white70, fontSize: 14),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    '1 unit up to +2, then true count − 1 units (max 8)',
+                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                  ),
+                ],
+              ),
+            ),
+            Switch(
+              value: enabled,
+              onChanged: (v) {
+                ref.read(betCoachProvider.notifier).state = v;
+                TablePrefs.setBetCoach(v);
+              },
+            ),
+          ],
+        ),
+        if (enabled)
+          Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Unit',
+                    style: TextStyle(color: Colors.white54, fontSize: 12.5),
+                  ),
+                ),
+                for (final u in TablePrefs.betUnits)
+                  GestureDetector(
+                    onTap: () {
+                      HapticFeedback.lightImpact();
+                      ref.read(betUnitProvider.notifier).state = u;
+                      TablePrefs.setBetUnit(u);
+                    },
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      margin: const EdgeInsets.only(left: 5),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 7, vertical: 5),
+                      decoration: BoxDecoration(
+                        color: u == unit ? AppColors.gold : Colors.transparent,
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                          color: u == unit
+                              ? AppColors.gold
+                              : AppColors.gold.withValues(alpha: 0.25),
+                        ),
+                      ),
+                      child: Text(
+                        '\$$u',
+                        style: TextStyle(
+                          color: u == unit ? AppColors.wood : Colors.white54,
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+/// Quiz the running count every few rounds while the HUD is hidden.
+class _CountCheckToggleRow extends ConsumerWidget {
+  const _CountCheckToggleRow();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final enabled = ref.watch(countCheckEnabledProvider);
+    return Row(
+      children: [
+        const Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Count check quiz',
+                style: TextStyle(color: Colors.white70, fontSize: 14),
+              ),
+              SizedBox(height: 2),
+              Text(
+                'Asks for the running count every $countCheckEvery hands',
+                style: TextStyle(color: Colors.white38, fontSize: 11),
+              ),
+            ],
+          ),
+        ),
+        Switch(
+          value: enabled,
+          onChanged: (v) {
+            ref.read(countCheckEnabledProvider.notifier).state = v;
+            TablePrefs.setCountCheck(v);
+          },
+        ),
+      ],
+    );
+  }
+}
+
 class _SoundToggleRow extends StatefulWidget {
   const _SoundToggleRow();
 
@@ -1373,22 +1550,42 @@ class _SettingsPanel extends ConsumerWidget {
           Row(
             children: [
               const Expanded(
-                child: Text(
-                  'Show Hi-Lo Count HUD',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Show Hi-Lo Count HUD',
+                      style: TextStyle(color: Colors.white70, fontSize: 14),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'Turn off to keep the count yourself, like in a casino',
+                      style: TextStyle(color: Colors.white38, fontSize: 11),
+                    ),
+                  ],
                 ),
               ),
               Switch(
                 value: showCount,
-                onChanged: (v) =>
-                    ref.read(showCountProvider.notifier).state = v,
+                onChanged: (v) {
+                  ref.read(showCountProvider.notifier).state = v;
+                  TablePrefs.setShowCount(v);
+                },
               ),
             ],
           ),
+          if (!showCount) ...[
+            const SizedBox(height: 6),
+            const _CountCheckToggleRow(),
+          ],
           const SizedBox(height: 6),
           const _SoundToggleRow(),
           const SizedBox(height: 6),
           const _HintsToggleRow(),
+          const SizedBox(height: 6),
+          const _IndexPlaysToggleRow(),
+          const SizedBox(height: 6),
+          const _BetCoachRow(),
           const SizedBox(height: 2),
           const _PrivacyPolicyRow(),
           const SizedBox(height: 10),
@@ -1455,6 +1652,7 @@ class _HandsSelector extends ConsumerWidget {
         onTap: () {
           HapticFeedback.lightImpact();
           ref.read(spotCountProvider.notifier).state = count;
+          TablePrefs.setSpots(count);
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
@@ -1502,6 +1700,7 @@ class _ShoeSelector extends ConsumerWidget {
         onTap: () {
           HapticFeedback.lightImpact();
           ref.read(shoeModeProvider.notifier).state = mode;
+          TablePrefs.setShoe(mode.name);
         },
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
@@ -1534,6 +1733,7 @@ class _ShoeSelector extends ConsumerWidget {
         btn(ShoeMode.continuousShuffle, 'C.S.'),
         btn(ShoeMode.twoDeck, '2 D'),
         btn(ShoeMode.sixDeck, '6 D'),
+        btn(ShoeMode.eightDeck, '8 D'),
       ],
     );
   }

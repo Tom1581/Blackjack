@@ -19,40 +19,58 @@ class CardWidget extends StatefulWidget {
   State<CardWidget> createState() => _CardWidgetState();
 }
 
-class _CardWidgetState extends State<CardWidget>
-    with SingleTickerProviderStateMixin {
+class _CardWidgetState extends State<CardWidget> with TickerProviderStateMixin {
   late final AnimationController _ctrl;
   late final Animation<double> _flip;
+
+  /// Slides a newly dealt card in from the shoe before it turns over, so a
+  /// deal reads as cards leaving the shoe rather than appearing in place.
+  late final AnimationController _deal;
 
   @override
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-      duration: const Duration(milliseconds: 420),
+      duration: const Duration(milliseconds: 340),
       vsync: this,
     );
     _flip = Tween(begin: 0.0, end: 1.0).animate(
       CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut),
     );
-    if (widget.animate && widget.card?.faceUp == true) {
-      _ctrl.forward();
-    } else if (widget.card?.faceUp == true) {
-      _ctrl.value = 1.0;
+    _deal = AnimationController(
+      duration: const Duration(milliseconds: 240),
+      vsync: this,
+    );
+    if (widget.animate && widget.card != null) {
+      _deal.forward().whenComplete(() {
+        if (mounted && widget.card?.faceUp == true) _ctrl.forward();
+      });
+    } else {
+      _deal.value = 1.0;
+      if (widget.card?.faceUp == true) _ctrl.value = 1.0;
     }
   }
 
   @override
   void didUpdateWidget(CardWidget old) {
     super.didUpdateWidget(old);
-    if (old.card?.faceUp != widget.card?.faceUp && widget.card?.faceUp == true) {
+    if (old.card?.faceUp != widget.card?.faceUp &&
+        widget.card?.faceUp == true &&
+        _deal.isCompleted) {
       _ctrl.forward();
     }
   }
 
   @override
   void dispose() {
+    _deal.dispose();
     _ctrl.dispose();
     super.dispose();
+  }
+
+  String _describe(CardModel card) {
+    if (card.hidden || !card.faceUp) return 'Face-down card';
+    return '${card.rank.hiLoName} of ${card.suit.name}';
   }
 
   @override
@@ -64,21 +82,31 @@ class _CardWidgetState extends State<CardWidget>
       return _emptySlot(w, h);
     }
 
-    return AnimatedBuilder(
-      animation: _flip,
-      builder: (_, __) {
-        final angle = _flip.value * pi;
-        final showFront = angle <= pi / 2;
-        return Transform(
-          alignment: Alignment.center,
-          transform: Matrix4.identity()
-            ..setEntry(3, 2, 0.001)
-            ..rotateY(angle > pi / 2 ? pi - angle : angle),
-          child: showFront
-              ? _backFace(w, h)
-              : _frontFace(widget.card!, w, h),
-        );
-      },
+    return Semantics(
+      label: _describe(widget.card!),
+      child: AnimatedBuilder(
+        animation: Listenable.merge([_flip, _deal]),
+        builder: (_, __) {
+          final angle = _flip.value * pi;
+          final showFront = angle <= pi / 2;
+          final t = Curves.easeOutCubic.transform(_deal.value);
+          return Transform.translate(
+            offset: Offset((1 - t) * w * 1.6, -(1 - t) * h * 1.1),
+            child: Opacity(
+              opacity: (t * 1.6).clamp(0.0, 1.0),
+              child: Transform(
+                alignment: Alignment.center,
+                transform: Matrix4.identity()
+                  ..setEntry(3, 2, 0.001)
+                  ..rotateY(angle > pi / 2 ? pi - angle : angle),
+                child: showFront
+                    ? _backFace(w, h)
+                    : _frontFace(widget.card!, w, h),
+              ),
+            ),
+          );
+        },
+      ),
     );
   }
 

@@ -569,8 +569,10 @@ class OnlineTableLogic {
     // A dealer with no live hand to beat does not draw. Previously the dealer
     // played out even when every player had busted, burning shoe cards on a
     // round that was already decided.
+    // A natural is paid against the dealer's first two cards, so it gives the
+    // dealer nothing to draw for either.
     final anyLive = state.seats.any(
-      (s) => s.inRound && s.hands.any((h) => !h.hand.isBust),
+      (s) => s.inRound && s.hands.any((h) => !h.hand.isBust && !h.hand.isNatural),
     );
     if (anyLive) {
       while (dealerShouldHit(dealer)) {
@@ -657,6 +659,10 @@ class OnlineTableLogic {
         return bet * 2;
       case GameResult.push:
         return bet;
+      // Online tables do not offer surrender; kept so the switch stays total
+      // and agrees with the solo engine if they ever do.
+      case GameResult.surrender:
+        return (bet + 1) ~/ 2;
       case GameResult.loss:
       case GameResult.bust:
         return 0;

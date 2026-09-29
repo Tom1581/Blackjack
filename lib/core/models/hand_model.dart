@@ -15,11 +15,16 @@ class HandModel {
   /// 3:2), so payout resolution needs to know a hand's origin.
   final bool fromSplit;
 
+  /// The player gave this hand up (late surrender): half the bet comes back
+  /// and the hand takes no further part in the round.
+  final bool surrendered;
+
   const HandModel({
     this.cards = const [],
     this.isDoubled = false,
     this.bet = 0,
     this.fromSplit = false,
+    this.surrendered = false,
   });
 
   HandModel copyWith({
@@ -27,12 +32,14 @@ class HandModel {
     bool? isDoubled,
     int? bet,
     bool? fromSplit,
+    bool? surrendered,
   }) =>
       HandModel(
         cards: cards ?? this.cards,
         isDoubled: isDoubled ?? this.isDoubled,
         bet: bet ?? this.bet,
         fromSplit: fromSplit ?? this.fromSplit,
+        surrendered: surrendered ?? this.surrendered,
       );
 
   // Wire format for online play.
@@ -41,6 +48,7 @@ class HandModel {
         'd': isDoubled,
         'b': bet,
         'fs': fromSplit,
+        if (surrendered) 'sr': true,
       };
 
   factory HandModel.fromJson(Map<String, dynamic> json) => HandModel(
@@ -51,11 +59,14 @@ class HandModel {
         isDoubled: json['d'] as bool? ?? false,
         bet: json['b'] as int? ?? 0,
         fromSplit: json['fs'] as bool? ?? false,
+        surrendered: json['sr'] as bool? ?? false,
       );
 
   HandModel addCard(CardModel card) => copyWith(cards: [...cards, card]);
 
   HandModel markDoubled() => copyWith(isDoubled: true);
+
+  HandModel markSurrendered() => copyWith(surrendered: true);
 
   /// True when any card in this hand was redacted in transit — i.e. we are a
   /// guest looking at the dealer's unturned hole card. Value-derived getters
@@ -104,6 +115,38 @@ class HandModel {
     }
     return aces > 0 && total <= 21;
   }
+
+  /// True while any card is still face down — the dealer's unturned hole card,
+  /// whether it was dealt locally or redacted in transit.
+  bool get hasFaceDown {
+    for (final card in cards) {
+      if (card.hidden || !card.faceUp) return true;
+    }
+    return false;
+  }
+
+  /// The total a player at the table can actually see: face-down cards are
+  /// left out. [value] deliberately includes a locally dealt hole card (the
+  /// engine needs it to peek for blackjack), so anything *shown* to the player
+  /// must use this instead or it gives the hole card away.
+  int get visibleValue {
+    int total = 0;
+    int aces = 0;
+    for (final card in cards) {
+      if (card.hidden || !card.faceUp) continue;
+      total += card.rank.value;
+      if (card.rank == Rank.ace) aces++;
+    }
+    while (total > 21 && aces > 0) {
+      total -= 10;
+      aces--;
+    }
+    return total;
+  }
+
+  /// A two-card 21 that was dealt, not made by splitting — the only hand that
+  /// pays the blackjack bonus and needs nothing from the dealer's draw.
+  bool get isNatural => !fromSplit && isBlackjack;
 
   bool get isBust => !hasHidden && value > 21;
 

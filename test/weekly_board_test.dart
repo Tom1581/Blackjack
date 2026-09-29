@@ -15,6 +15,7 @@ class _FakeBackend implements BoardBackend {
   Object? identifyError;
   Object? submitError;
   Object? fetchError;
+  Object? accuracyError;
   int submits = 0;
 
   @override
@@ -43,14 +44,40 @@ class _FakeBackend implements BoardBackend {
     return week.take(limit).toList();
   }
 
+  @override
+  Future<List<Map<String, dynamic>>> accuracyRows(
+      String weekKey, int minDecisions, int limit) async {
+    final error = accuracyError;
+    if (error != null) throw error;
+    int bp(Map<String, dynamic> r) {
+      final d = (r['decisions'] as int?) ?? 0;
+      return d == 0 ? 0 : ((r['correct_decisions'] as int) * 10000) ~/ d;
+    }
+
+    final week = rows
+        .where((r) =>
+            r['week_key'] == weekKey &&
+            ((r['decisions'] as int?) ?? 0) >= minDecisions)
+        .toList()
+      ..sort((a, b) {
+        final byAccuracy = bp(b).compareTo(bp(a));
+        if (byAccuracy != 0) return byAccuracy;
+        return (b['decisions'] as int).compareTo(a['decisions'] as int);
+      });
+    return week.take(limit).toList();
+  }
+
   /// Seat a rival on the board.
-  void addPlayer(String id, String name, int profit, {int hands = 50}) {
+  void addPlayer(String id, String name, int profit,
+      {int hands = 50, int decisions = 0, int correct = 0}) {
     rows.add({
       'player_id': id,
       'week_key': LeaderboardService.weekKey(),
       'display_name': name,
       'profit': profit,
       'hands_played': hands,
+      'decisions': decisions,
+      'correct_decisions': correct,
     });
   }
 }
@@ -298,6 +325,106 @@ void main() {
       final board = await WeeklyBoardService.fetch();
       expect(board.entries.map((e) => e.name), isNot(contains('LastWeek')));
       expect(board.entries.single.isCurrentUser, isTrue);
+    });
+  });
+
+  group('The accuracy league', () {
+    Future<void> decide(int total, int correct) async {
+      for (var i = 0; i < total; i++) {
+        await LeaderboardService.recordDecision(correct: i < correct);
+      }
+    }
+
+    test('your decisions are sent with your score', () async {
+      await play(hands: 3);
+      await decide(10, 9);
+      await WeeklyBoardService.push(force: true);
+      final row = backend.rows.single;
+      expect(row['decisions'], 10);
+      expect(row['correct_decisions'], 9);
+    });
+
+    test('a new decision alone is worth a new push', () async {
+      await play(hands: 3);
+      await WeeklyBoardService.push(force: true);
+      await decide(1, 1);
+      expect(await WeeklyBoardService.push(force: true), isTrue);
+    });
+
+    test('it ranks by accuracy, needs 50 decisions, and breaks ties on volume',
+        () async {
+      backend.addPlayer('a', 'Ann', 900, decisions: 100, correct: 91);
+      backend.addPlayer('b', 'Bo', 100, decisions: 60, correct: 60);
+      backend.addPlayer('c', 'Cy', 50, decisions: 40, correct: 40);
+      backend.addPlayer('d', 'Di', 10, decisions: 200, correct: 182);
+      await play(hands: 30);
+      await decide(80, 76); // 95%
+
+      final board = await WeeklyBoardService.fetchAccuracy();
+      expect(board.isLive, isTrue);
+      expect([for (final e in board.entries) e.name],
+          ['Bo', 'Zed', 'Di', 'Ann'],
+          reason: 'Cy has too few decisions; Di beats Ann on volume at 91%');
+      expect(board.me!.rank, 2);
+      expect(board.me!.accuracyPercent, 95);
+    });
+
+    test('below the minimum you are shown but not ranked', () async {
+      backend.addPlayer('a', 'Ann', 900, decisions: 100, correct: 91);
+      await play(hands: 5);
+      await decide(10, 10);
+      final board = await WeeklyBoardService.fetchAccuracy();
+      expect(board.entries.map((e) => e.name), ['Ann']);
+      expect(board.me!.isCurrentUser, isTrue);
+      expect(board.me!.rank, 0);
+      expect(board.me!.decisions, 10);
+    });
+
+    test('a database without the accuracy migration reads as being set up',
+        () async {
+      backend.accuracyError = const PostgrestException(
+          message: 'column weekly_rankings.accuracy_bp does not exist',
+          code: '42703');
+      await play(hands: 30);
+      await decide(60, 57);
+      final board = await WeeklyBoardService.fetchAccuracy();
+      expect(board.status, BoardStatus.notConfigured);
+      expect(board.me!.decisions, 60);
+      expect(board.entries.single.isCurrentUser, isTrue);
+    });
+
+    test('accuracy is floored: 99.9% is not 100%', () {
+      const e = LeaderboardEntry(
+          name: 'x', profit: 0, decisions: 1000, correctDecisions: 999);
+      expect(e.accuracyPercent, 99);
+    });
+
+    test('the missing-schema codes are recognised', () {
+      for (final code in ['PGRST202', '42883', '42703', 'PGRST204']) {
+        expect(
+            SupabaseBoardBackend.isMissingSchema(
+                PostgrestException(message: 'x', code: code)),
+            isTrue,
+            reason: code);
+      }
+      expect(
+          SupabaseBoardBackend.isMissingSchema(
+              const PostgrestException(message: 'x', code: '22023')),
+          isFalse,
+          reason: 'a rejected score is a real error, not a missing schema');
+    });
+
+    test('decisions reset with the week', () async {
+      await decide(5, 5);
+      expect((await LeaderboardService.readWeeklyDecisions()).decisions, 5);
+      SharedPreferences.setMockInitialValues({
+        'lb_week_id': 'W1',
+        'lb_weekly_decisions': 99,
+        'lb_weekly_correct': 90,
+      });
+      final fresh = await LeaderboardService.readWeeklyDecisions();
+      expect(fresh.decisions, 0);
+      expect(fresh.correct, 0);
     });
   });
 }

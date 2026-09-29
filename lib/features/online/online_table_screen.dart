@@ -495,8 +495,10 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
           const SizedBox(height: 6),
           _valueBadge(
             // Until the hole card turns over, the dealer's own rank never
-            // leaves the host, so this really is all anyone can know.
-            revealed ? '${dealer.value}' : '${dealer.value} + ?',
+            // leaves the host — but the host's own copy of the table still
+            // holds it, so the badge counts only face-up cards or the host's
+            // screen gives the hole card away.
+            revealed ? '${dealer.value}' : '${dealer.visibleValue} + ?',
             bust: revealed && dealer.isBust,
           ),
         ],
@@ -1454,6 +1456,7 @@ class _HandColumn extends StatelessWidget {
         case GameResult.dealerBust:
           return AppColors.favorable;
         case GameResult.push:
+        case GameResult.surrender:
           return AppColors.neutral;
         case GameResult.loss:
         case GameResult.bust:
@@ -1476,6 +1479,8 @@ class _HandColumn extends StatelessWidget {
         return 'LOSE';
       case GameResult.bust:
         return 'BUST';
+      case GameResult.surrender:
+        return 'SURR';
     }
   }
 }

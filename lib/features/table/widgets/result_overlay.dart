@@ -151,6 +151,8 @@ class _ResultOverlayState extends ConsumerState<ResultOverlay>
         return Icons.trending_up;
       case GameResult.push:
         return Icons.horizontal_rule;
+      case GameResult.surrender:
+        return Icons.flag_outlined;
       case GameResult.loss:
       case GameResult.bust:
         return Icons.trending_down;
@@ -182,6 +184,8 @@ class _ResultOverlayState extends ConsumerState<ResultOverlay>
         return ('DEALER BUSTS', AppColors.favorable, true);
       case GameResult.push:
         return ('PUSH', AppColors.neutral, false);
+      case GameResult.surrender:
+        return ('SURRENDER', AppColors.neutral, false);
       case GameResult.loss:
         return ('YOU LOSE', AppColors.unfavorable, false);
       case GameResult.bust:

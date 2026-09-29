@@ -1,56 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import '../../core/progress/player_stats.dart';
 import '../../core/strategy/strategy_coach.dart';
 import '../../theme/app_theme.dart';
+import '../table/table_screen.dart' show formatChips;
+import '../training/strategy_drill_screen.dart';
 
-// Simple in-memory session stats (persisted via shared_preferences in production)
-final _statsProvider = FutureProvider<_SessionStats>((ref) async {
-  final prefs = await SharedPreferences.getInstance();
-  return _SessionStats(
-    handsPlayed: prefs.getInt('hands_played') ?? 0,
-    wins: prefs.getInt('wins') ?? 0,
-    losses: prefs.getInt('losses') ?? 0,
-    pushes: prefs.getInt('pushes') ?? 0,
-    blackjacks: prefs.getInt('blackjacks') ?? 0,
-    startBankroll: prefs.getInt('start_bankroll') ?? 1000,
-    currentBankroll: prefs.getInt('bankroll') ?? 1000,
-    countHistory: (prefs.getStringList('count_history') ?? [])
-        .map(int.parse)
-        .toList(),
-    strategy: await StrategyCoach.read(),
+class _StatsSnapshot {
+  final PlayerStats table;
+  final StrategyRecord strategy;
+  final StrategyRecord index;
+  final StrategyMastery mastery;
+
+  const _StatsSnapshot({
+    required this.table,
+    required this.strategy,
+    required this.index,
+    required this.mastery,
+  });
+}
+
+/// Re-read every time the screen opens. This used to be a plain
+/// FutureProvider, which caches forever — the second visit showed the numbers
+/// from the first.
+final _statsProvider = FutureProvider.autoDispose<_StatsSnapshot>((ref) async {
+  final results = await Future.wait([
+    PlayerStatsStore.read(),
+    StrategyCoach.read(),
+    StrategyCoach.readMastery(),
+    StrategyCoach.readIndex(),
+  ]);
+  return _StatsSnapshot(
+    table: results[0] as PlayerStats,
+    strategy: results[1] as StrategyRecord,
+    mastery: results[2] as StrategyMastery,
+    index: results[3] as StrategyRecord,
   );
 });
-
-class _SessionStats {
-  final int handsPlayed;
-  final int wins;
-  final int losses;
-  final int pushes;
-  final int blackjacks;
-  final int startBankroll;
-  final int currentBankroll;
-  final List<int> countHistory;
-
-  /// How the player's decisions compare with basic strategy — the number this
-  /// app exists to move.
-  final StrategyRecord strategy;
-
-  const _SessionStats({
-    required this.handsPlayed,
-    required this.wins,
-    required this.losses,
-    required this.pushes,
-    required this.blackjacks,
-    required this.startBankroll,
-    required this.currentBankroll,
-    required this.countHistory,
-    required this.strategy,
-  });
-
-  double get winRate => handsPlayed > 0 ? wins / handsPlayed : 0;
-  int get netProfit => currentBankroll - startBankroll;
-}
 
 class StatsScreen extends ConsumerWidget {
   const StatsScreen({super.key});
@@ -80,10 +66,11 @@ class StatsScreen extends ConsumerWidget {
         centerTitle: true,
       ),
       body: statsAsync.when(
-        loading: () =>
-            const Center(child: CircularProgressIndicator(color: AppColors.accent)),
-        error: (e, _) =>
-            Center(child: Text('Error: $e', style: const TextStyle(color: Colors.red))),
+        loading: () => const Center(
+            child: CircularProgressIndicator(color: AppColors.accent)),
+        error: (e, _) => Center(
+            child:
+                Text('Error: $e', style: const TextStyle(color: Colors.red))),
         data: (stats) => _StatsBody(stats: stats),
       ),
     );
@@ -91,14 +78,16 @@ class StatsScreen extends ConsumerWidget {
 }
 
 class _StatsBody extends StatelessWidget {
-  final _SessionStats stats;
+  final _StatsSnapshot stats;
 
   const _StatsBody({required this.stats});
 
   @override
   Widget build(BuildContext context) {
-    final profit = stats.netProfit;
-    final profitColor = profit >= 0 ? AppColors.favorable : AppColors.unfavorable;
+    final t = stats.table;
+    final profit = t.tableNet;
+    final profitColor =
+        profit >= 0 ? AppColors.favorable : AppColors.unfavorable;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),
@@ -106,11 +95,64 @@ class _StatsBody extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           _StrategyAccuracyCard(record: stats.strategy),
-          const SizedBox(height: 16),
-          // Profit/Loss banner
+          const SizedBox(height: 12),
+          _MasteryCard(mastery: stats.mastery),
+          const SizedBox(height: 24),
+          _sectionTitle('COUNTING'),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _statTile(
+                  'Count checks',
+                  t.countChecks == 0 ? '—' : '${t.countCheckPercent}%',
+                  t.countChecks == 0
+                      ? AppColors.neutral
+                      : t.countCheckPercent >= 90
+                          ? AppColors.favorable
+                          : AppColors.gold,
+                  caption: t.countChecks == 0
+                      ? 'Hide the HUD to be quizzed'
+                      : '${t.countChecksCorrect} of ${t.countChecks} exact',
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _statTile(
+                  'Bet checks',
+                  t.betChecks == 0 ? '—' : '${t.betCheckPercent}%',
+                  t.betChecks == 0
+                      ? AppColors.neutral
+                      : t.betCheckPercent >= 90
+                          ? AppColors.favorable
+                          : AppColors.gold,
+                  caption: t.betChecks == 0
+                      ? 'Turn on the bet coach'
+                      : '${t.betChecksCorrect} of ${t.betChecks} on the ramp',
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _statTile(
+            'Index plays',
+            stats.index.total == 0 ? '—' : '${stats.index.accuracyPercent}%',
+            stats.index.total == 0
+                ? AppColors.neutral
+                : stats.index.accuracyPercent >= 90
+                    ? AppColors.favorable
+                    : AppColors.gold,
+            caption: stats.index.total == 0
+                ? 'Turn on index plays in Table Settings'
+                : '${stats.index.correct} of ${stats.index.total} decided by '
+                    'the count',
+          ),
+          const SizedBox(height: 24),
+          _sectionTitle('TABLE RESULTS'),
+          const SizedBox(height: 12),
           Container(
             width: double.infinity,
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(18),
             decoration: BoxDecoration(
               color: profitColor.withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(16),
@@ -119,7 +161,7 @@ class _StatsBody extends StatelessWidget {
             child: Column(
               children: [
                 Text(
-                  profit >= 0 ? 'SESSION PROFIT' : 'SESSION LOSS',
+                  profit >= 0 ? 'NET AT THE TABLE' : 'NET LOSS AT THE TABLE',
                   style: TextStyle(
                     color: profitColor.withValues(alpha: 0.8),
                     fontSize: 11,
@@ -129,64 +171,70 @@ class _StatsBody extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  '${profit >= 0 ? '+' : ''}\$$profit',
+                  '${profit >= 0 ? '+' : '−'}\$${formatChips(profit.abs())}',
                   style: TextStyle(
                     color: profitColor,
-                    fontSize: 40,
+                    fontSize: 38,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
                 Text(
-                  '\$${stats.startBankroll} → \$${stats.currentBankroll}',
-                  style: const TextStyle(color: AppColors.neutral, fontSize: 13),
+                  'Winnings only — bonuses and reward chips are not counted.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.45),
+                    fontSize: 11.5,
+                  ),
                 ),
               ],
             ),
           ),
-
-          const SizedBox(height: 24),
-          _sectionTitle('HAND RESULTS'),
           const SizedBox(height: 12),
-
-          // Stats grid
           GridView.count(
             shrinkWrap: true,
             physics: const NeverScrollableScrollPhysics(),
             crossAxisCount: 2,
             mainAxisSpacing: 12,
             crossAxisSpacing: 12,
-            childAspectRatio: 2,
+            childAspectRatio: 1.7,
             children: [
-              _statTile('Hands Played', '${stats.handsPlayed}', Colors.white),
-              _statTile('Win Rate',
-                  '${(stats.winRate * 100).toStringAsFixed(1)}%',
-                  AppColors.favorable),
-              _statTile('Wins', '${stats.wins}', AppColors.favorable),
-              _statTile('Losses', '${stats.losses}', AppColors.unfavorable),
-              _statTile('Pushes', '${stats.pushes}', AppColors.neutral),
-              _statTile('Blackjacks', '${stats.blackjacks}',
-                  const Color(0xFFfbbf24)),
+              _statTile('Hands played', '${t.hands}', Colors.white),
+              _statTile(
+                'Win rate',
+                t.wins + t.losses == 0
+                    ? '—'
+                    : '${(t.winRate * 100).toStringAsFixed(1)}%',
+                AppColors.favorable,
+                caption: 'pushes left out',
+              ),
+              _statTile('Wins', '${t.wins}', AppColors.favorable),
+              _statTile('Losses', '${t.losses}', AppColors.unfavorable),
+              _statTile('Pushes', '${t.pushes}', AppColors.neutral),
+              _statTile(
+                  'Blackjacks', '${t.blackjacks}', const Color(0xFFfbbf24)),
+              _statTile('Surrenders', '${t.surrenders}', AppColors.neutral,
+                  caption: 'counted as losses'),
+              _statTile('Biggest round', '+\$${formatChips(t.biggestWin)}',
+                  AppColors.gold),
             ],
           ),
-
           const SizedBox(height: 28),
-          _sectionTitle('HI-LO COUNT HISTORY'),
+          _sectionTitle('TRUE COUNT AT EACH DEAL'),
           const SizedBox(height: 12),
-
-          if (stats.countHistory.isEmpty)
+          if (t.trueCountHistory.length < 2)
             const Center(
               child: Padding(
                 padding: EdgeInsets.all(24),
                 child: Text(
-                  'No hands played yet.\nPlay some hands to see your count history.',
+                  'No hands played yet.\n'
+                  'Play some hands to see how the count moved.',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: AppColors.neutral),
                 ),
               ),
             )
           else
-            _CountChart(history: stats.countHistory),
-
+            _CountChart(history: t.trueCountHistory),
           const SizedBox(height: 12),
           _sectionTitle('WHAT THE COUNT MEANS'),
           const SizedBox(height: 12),
@@ -206,7 +254,7 @@ class _StatsBody extends StatelessWidget {
         ),
       );
 
-  Widget _statTile(String label, String value, Color color) {
+  Widget _statTile(String label, String value, Color color, {String? caption}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
       decoration: BoxDecoration(
@@ -231,6 +279,16 @@ class _StatsBody extends StatelessWidget {
               fontWeight: FontWeight.w900,
             ),
           ),
+          if (caption != null)
+            Text(
+              caption,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.white.withValues(alpha: 0.4),
+                fontSize: 10,
+              ),
+            ),
         ],
       ),
     );
@@ -289,9 +347,136 @@ class _StatsBody extends StatelessWidget {
   }
 }
 
-/// Simple sparkline chart for count history
+/// Per-category accuracy and the chart cells missed most, with a way straight
+/// into drilling them.
+class _MasteryCard extends StatelessWidget {
+  final StrategyMastery mastery;
+
+  const _MasteryCard({required this.mastery});
+
+  @override
+  Widget build(BuildContext context) {
+    final anyDecisions =
+        StrategyCategory.values.any((c) => mastery.of(c).total > 0);
+    if (!anyDecisions) return const SizedBox.shrink();
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AppColors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          for (final c in StrategyCategory.values) ...[
+            _categoryBar(c.label, mastery.of(c)),
+            const SizedBox(height: 10),
+          ],
+          if (mastery.topMisses.isNotEmpty) ...[
+            const Divider(color: Colors.white10, height: 18),
+            const Text(
+              'MOST MISSED',
+              style: TextStyle(
+                color: AppColors.neutral,
+                fontSize: 10.5,
+                letterSpacing: 2,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+            const SizedBox(height: 8),
+            for (final miss in mastery.topMisses)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        miss.spot,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    Text(
+                      '×${miss.count}',
+                      style: const TextStyle(
+                        color: AppColors.unfavorable,
+                        fontSize: 13,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            const SizedBox(height: 8),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () => Navigator.of(context).push(MaterialPageRoute(
+                  builder: (_) => const StrategyDrillScreen(),
+                )),
+                icon: const Icon(Icons.fact_check_outlined, size: 18),
+                label: const Text('DRILL MY MISTAKES'),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _categoryBar(String label, StrategyRecord r) {
+    final pct = r.accuracyPercent;
+    final color = r.total == 0
+        ? AppColors.neutral
+        : pct >= 95
+            ? AppColors.favorable
+            : pct >= 85
+                ? AppColors.gold
+                : AppColors.unfavorable;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(label,
+                  style:
+                      const TextStyle(color: Colors.white70, fontSize: 12.5)),
+            ),
+            Text(
+              r.total == 0 ? '—' : '$pct%  ·  ${r.total}',
+              style: TextStyle(
+                color: color,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 5),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(3),
+          child: LinearProgressIndicator(
+            minHeight: 6,
+            value: r.total == 0 ? 0 : r.accuracy,
+            backgroundColor: Colors.white.withValues(alpha: 0.08),
+            valueColor: AlwaysStoppedAnimation(color),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// True count at each deal, most recent on the right.
 class _CountChart extends StatelessWidget {
-  final List<int> history;
+  final List<double> history;
 
   const _CountChart({required this.history});
 
@@ -314,55 +499,59 @@ class _CountChart extends StatelessWidget {
 }
 
 class _SparklinePainter extends CustomPainter {
-  final List<int> data;
+  final List<double> data;
 
   _SparklinePainter(this.data);
 
   @override
   void paint(Canvas canvas, Size size) {
-    if (data.isEmpty) return;
+    if (data.length < 2) return;
 
-    final min = data.reduce((a, b) => a < b ? a : b).toDouble();
-    final max = data.reduce((a, b) => a > b ? a : b).toDouble();
-    final range = (max - min).abs();
-    if (range == 0) return;
+    // Always include zero, so a shoe that stayed positive still shows where
+    // neutral is.
+    var min = data.reduce((a, b) => a < b ? a : b);
+    var max = data.reduce((a, b) => a > b ? a : b);
+    if (min > 0) min = 0;
+    if (max < 0) max = 0;
+    final range = (max - min) == 0 ? 1.0 : (max - min);
 
-    final zeroY = size.height - ((0 - min) / range) * size.height;
+    double yOf(double v) => size.height - ((v - min) / range) * size.height;
 
-    // Zero line
-    final zeroPaint = Paint()
-      ..color = Colors.white12
-      ..strokeWidth = 1;
-    canvas.drawLine(Offset(0, zeroY), Offset(size.width, zeroY), zeroPaint);
-
-    // Sparkline
-    final linePaint = Paint()
-      ..color = AppColors.accent
-      ..strokeWidth = 2
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round
-      ..strokeJoin = StrokeJoin.round;
+    canvas.drawLine(
+      Offset(0, yOf(0)),
+      Offset(size.width, yOf(0)),
+      Paint()
+        ..color = Colors.white12
+        ..strokeWidth = 1,
+    );
 
     final path = Path();
     for (int i = 0; i < data.length; i++) {
       final x = i / (data.length - 1) * size.width;
-      final y = size.height - ((data[i] - min) / range) * size.height;
-      if (i == 0) path.moveTo(x, y);
-      else path.lineTo(x, y);
+      final y = yOf(data[i]);
+      if (i == 0) {
+        path.moveTo(x, y);
+      } else {
+        path.lineTo(x, y);
+      }
     }
-    canvas.drawPath(path, linePaint);
+    canvas.drawPath(
+      path,
+      Paint()
+        ..color = AppColors.accent
+        ..strokeWidth = 2
+        ..style = PaintingStyle.stroke
+        ..strokeCap = StrokeCap.round
+        ..strokeJoin = StrokeJoin.round,
+    );
 
-    // Dot at end
     final last = data.last;
-    final lastX = size.width;
-    final lastY = size.height - ((last - min) / range) * size.height;
     final color = last >= 2
         ? AppColors.favorable
         : last <= -1
             ? AppColors.unfavorable
             : AppColors.neutral;
-    canvas.drawCircle(
-        Offset(lastX, lastY), 5, Paint()..color = color);
+    canvas.drawCircle(Offset(size.width, yOf(last)), 5, Paint()..color = color);
   }
 
   @override

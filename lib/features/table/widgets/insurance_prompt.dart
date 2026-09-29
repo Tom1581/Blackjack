@@ -13,6 +13,10 @@ class InsurancePrompt extends ConsumerWidget {
     final state = ref.watch(tableProvider);
     final bet = state.currentBet;
     final insuranceCost = bet ~/ 2;
+    final showCount = ref.watch(showCountProvider);
+    final tc = state.trueCount;
+    final tcText =
+        tc >= 0 ? '+${tc.toStringAsFixed(1)}' : tc.toStringAsFixed(1);
 
     return Container(
       color: Colors.black.withValues(alpha: 0.7),
@@ -35,8 +39,7 @@ class InsurancePrompt extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(Icons.shield_outlined,
-                  color: AppColors.gold, size: 34),
+              Icon(Icons.shield_outlined, color: AppColors.gold, size: 34),
               const SizedBox(height: 10),
               const Text(
                 'INSURANCE?',
@@ -53,7 +56,36 @@ class InsurancePrompt extends ConsumerWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(color: AppColors.neutral, fontSize: 13),
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
+              // The first and most valuable count-based play there is. Flat
+              // basic strategy says never insure; a counter insures at a true
+              // count of +3 or higher. The live count is only shown when the
+              // HUD is on — otherwise this would hand a hidden-count player
+              // the answer.
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.25),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Text(
+                  showCount
+                      ? 'Counter\'s rule: insure at true count +3 or higher. '
+                          'True count now $tcText.'
+                      : 'Counter\'s rule: insure at true count +3 or higher. '
+                          'What is yours?',
+                  key: const ValueKey('insurance-tip'),
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color: AppColors.gold.withValues(alpha: 0.9),
+                    fontSize: 11.5,
+                    height: 1.35,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
               Row(
                 children: [
                   Expanded(

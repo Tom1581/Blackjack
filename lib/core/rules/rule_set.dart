@@ -51,9 +51,9 @@ class RuleSet {
   /// Split aces may be split again.
   final bool resplitAces;
 
-  /// Late surrender is offered. **Modelled but not yet playable** — the table
-  /// has no surrender action, so no shipped preset enables it. See
-  /// `RuleSet.presets`.
+  /// Late surrender is offered: on the first two cards of a dealt hand, after
+  /// the dealer has checked for blackjack, the player may give the hand up
+  /// for half the bet back.
   final bool lateSurrender;
 
   const RuleSet({
@@ -97,6 +97,7 @@ class RuleSet {
   String get summary => [
         dealerLabel,
         if (doubleAfterSplit) 'DAS' else 'no DAS',
+        if (lateSurrender) 'LS',
         payoutLabel,
         if (doubleRule != DoubleRule.anyTwo) doubleRule.label,
       ].join(' · ');
@@ -151,7 +152,8 @@ class RuleSet {
   static const eightDeckS17 = RuleSet(
     id: 'eight_deck_s17',
     name: 'Atlantic City',
-    blurb: 'Eight decks, dealer stands on soft 17, double after split.',
+    blurb: 'Dealer stands on soft 17, double after split. Usually dealt '
+        'from eight decks — pick the 8 D shoe to match.',
     dealerHitsSoft17: false,
   );
 
@@ -169,6 +171,23 @@ class RuleSet {
     doubleRule: DoubleRule.nineToEleven,
   );
 
+  static const sixDeckH17Surrender = RuleSet(
+    id: 'six_deck_h17_ls',
+    name: 'H17 + Surrender',
+    blurb: 'Late surrender: give up half your bet on the worst hands, after '
+        'the dealer checks for blackjack.',
+    lateSurrender: true,
+  );
+
+  static const sixDeckS17Surrender = RuleSet(
+    id: 'six_deck_s17_ls',
+    name: 'S17 + Surrender',
+    blurb: 'The best common shoe game: dealer stands on soft 17, and late '
+        'surrender is allowed.',
+    dealerHitsSoft17: false,
+    lateSurrender: true,
+  );
+
   static const sixFive = RuleSet(
     id: 'six_five',
     name: '6:5 Blackjack',
@@ -179,16 +198,14 @@ class RuleSet {
 
   /// Presets offered in the picker.
   ///
-  /// All are four decks or more on purpose. Single and double deck have
-  /// genuinely different basic strategy charts, and offering them against the
-  /// multi-deck chart would teach the wrong play — they need their own tested
-  /// charts before they can be offered.
-  ///
-  /// None enables [lateSurrender] yet, because the table has no surrender
-  /// action to take.
+  /// House rules only — the number of decks is the shoe setting, and the
+  /// coach reads both (two decks has its own chart). Single deck is not
+  /// offered: its chart is different again and not verified here.
   static const presets = <RuleSet>[
     sixDeckH17,
     sixDeckS17,
+    sixDeckH17Surrender,
+    sixDeckS17Surrender,
     eightDeckS17,
     sixDeckNoDas,
     restrictedDouble,

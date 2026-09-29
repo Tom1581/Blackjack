@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'app.dart';
 import 'core/audio/sound_service.dart';
 import 'core/rules/rules_store.dart';
+import 'core/settings/table_prefs.dart';
 import 'core/strategy/strategy_coach.dart';
 import 'core/supabase/supabase_service.dart';
 
@@ -18,6 +19,7 @@ Future<void> main() async {
     SoundService.load(),
     StrategyCoach.load(),
     RulesStore.load(),
+    TablePrefs.load(),
   ]);
   // Lock to portrait — best UX for card game
   SystemChrome.setPreferredOrientations([
