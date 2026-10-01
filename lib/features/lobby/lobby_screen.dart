@@ -19,6 +19,7 @@ import '../leaderboard/leaderboard_service.dart';
 import '../leaderboard/weekly_board_service.dart';
 import '../leaderboard/widgets/crown_icon.dart';
 import '../drill/daily_count_drill_screen.dart';
+import '../hilo_training/hilo_training_screen.dart';
 import '../online/online_entry_screen.dart';
 import '../stats/stats_screen.dart';
 import '../table/table_provider.dart';
@@ -158,6 +159,17 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
                         HapticFeedback.mediumImpact();
                         Navigator.of(context).push(MaterialPageRoute(
                           builder: (_) => const TableScreen(),
+                        ));
+                      },
+                    ),
+                    const SizedBox(height: 12),
+                    _SecondaryButton(
+                      icon: Icons.style_outlined,
+                      label: 'HI-LO  TRAINING',
+                      onTap: () {
+                        HapticFeedback.lightImpact();
+                        Navigator.of(context).push(MaterialPageRoute(
+                          builder: (_) => const HiLoTrainingScreen(),
                         ));
                       },
                     ),

@@ -76,6 +76,8 @@ five players share one dealer and one shoe, with the running count on screen.
 
 WEEKLY LEAGUES
 - Profit league and an Accuracy league — who made the best decisions
+- Hi-Lo Daily: one shared shoe and one ranked attempt each day
+- Survival league: your best run of the week earns the rank
 - Lifetime stats: hands, win rate, blackjacks, surrenders, net at the table
 - Daily bonus streak
 
@@ -89,16 +91,12 @@ cash out virtual chips. Nothing here is a guarantee of results in a casino.
 ## Release Notes (500 char limit)
 
 ```
-New in 1.3:
+New in 1.3.1:
 
-- Late surrender tables, with the correct surrender chart
-- Index plays: Illustrious 18 and Fab 4, at the table and as a drill
-- Bet spread coach: the bet your true count calls for
-- Accuracy league next to the profit league
-- 2-deck shoes now use the real 2-deck strategy chart
-
-Also: the table fits smaller phones, and every chart cell is checked against
-a published strategy engine.
+- Hi-Lo Daily leaderboard: one shared shoe and one ranked attempt each day
+- Weekly Survival leaderboard: your best run earns the rank
+- New leaderboard screens for daily and weekly Hi-Lo training
+- Better offline handling when rankings cannot be reached
 ```
 
 ## Notes for whoever edits this next
