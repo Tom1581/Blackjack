@@ -1,13 +1,13 @@
 # Handover — what is left, and who can actually do it
 
-> **Latest pass: 2026-09-29 (1.3.0+11)** — the whole roadmap is built: two-deck
-> chart, late surrender, index plays, bet-spread coach, accuracy league. See
-> "What is built, and what is next" below. One new console step: **A8**.
+> **Latest pass: 2026-10-02 (1.4.0+13)** — Hi-Lo Training finished: modes,
+> leaderboards, friend challenges, the Daily reminder, screen-on during play.
+> See "2026-10-02 — Hi-Lo Training" below. A8 (the accuracy league) and the
+> Hi-Lo boards are **applied and live** (checked 2026-10-01).
 >
-> **Resuming? Start with `PICK_UP_HERE.md`.** Status as of 2026-09-29: A1
-> (rewarded unit), A3 (rankings migration) and A4 (anonymous sign-ins) are
-> **done**; the sections below were written before that and are kept for
-> reference.
+> **Resuming? Start with `PICK_UP_HERE.md`.** A1 (rewarded unit), A3
+> (rankings migration) and A4 (anonymous sign-ins) are **done**; the sections
+> below were written before that and are kept for reference.
 
 Checked live on 2026-08-26. Most of what remains is **console work in your
 Google and Supabase accounts**, which no coding agent can do for you. The
@@ -322,6 +322,40 @@ curl -s "https://yktyobprlradqtvmqfki.supabase.co/rest/v1/weekly_rankings?select
   and the engine does not deal the resplit; the reference charts assume no
   resplit, so this matches what is taught.
 - **Two-deck index plays.** See above.
+
+### 2026-10-02 — Hi-Lo Training, version 1.4.0+13
+
+A lobby game mode, `lib/features/hilo_training/`. A dealer deals real rounds
+to 1–5 seats and, at a random card, asks for the running count.
+
+| Piece | Where | How it was verified |
+|---|---|---|
+| Dealer, count, shoe, question schedule | `hilo_training_session.dart` | 6,000 deal steps for every table shape: the count always equals the face-up cards since the shuffle; the hole card is not counted until turned |
+| Modes: Daily, Survival, Duel, Practice; true count | `hilo_game.dart`, `hilo_game_screen.dart` | Every mode is played end to end in widget tests on 320dp and 360dp phones, with real fonts |
+| Scoring, ranks, 15 achievements, records | `hilo_scoring.dart`, `hilo_training_progress.dart` | Each rule is tested, including the loopholes that were closed (replays, quit duels) |
+| Friend challenge codes | `HiLoChallenge` in `hilo_game.dart` | Luhn mod 32 check: every one of more than 20,000 single typos is refused; the shuffle is pinned to the reference mulberry32 |
+| Shared leaderboards (built by Codex) | `hilo_boards_service.dart`, `supabase/migrations/20261001000000_hilo_training_boards.sql` | `test/hilo_boards_test.dart`; SQL cases in `tool/sql_checks/hilo_boards_check.sql` |
+| Challenge links + paste | `hilo_links.dart`, `docs/challenge/index.html` | A link opens the code sheet through the real app root (test); the page was rendered at 320px and 390px |
+| Daily reminder (opt-in) | `daily_reminder.dart` | The scheduling rules are tested with a fake scheduler; **not yet seen on a device** |
+| Screen stays on while dealing | `screen_awake.dart` | Tested on and off across pause, background and leaving the game |
+
+**Outside the feature folder, on purpose:**
+
+- `pubspec.yaml`: wakelock_plus, flutter_local_notifications 18,
+  timezone, app_links.
+- `android/app/build.gradle.kts`: core library desugaring.
+- `AndroidManifest.xml`: notification permissions and receivers, and the
+  `hilobj://challenge` link filter.
+- `ios/Runner/Info.plist`: the URL scheme.
+- `res/drawable/ic_stat_hilo.xml` and `res/raw/keep.xml`: the reminder icon,
+  kept through resource shrinking.
+- `lib/app.dart`: the navigator key and the link listener.
+- `lib/main.dart`: starts the reminder.
+- The lobby button and the Training Center tile.
+
+**Two switches only you can flip:** GitHub Pages for `/docs`, to make
+challenge links tappable, and the `HILO_CHALLENGE_PAGE` build define. Steps
+are in `PICK_UP_HERE.md`.
 
 ## The thing none of this fixes
 

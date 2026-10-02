@@ -2,7 +2,7 @@ name: blackjack_app
 description: Blackjack with Hi-Lo card counting — Android & iOS
 
 publish_to: 'none'
-version: 1.3.1+12
+version: 1.4.0+13
 
 environment:
   sdk: '>=3.3.0 <4.0.0'
@@ -11,14 +11,26 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  # Opens a friend's challenge link (hilobj://challenge/<code>). Already
+  # pulled in by supabase_flutter; listed so the app can use it directly.
+  app_links: ^7.0.0
   audioplayers: ^6.1.0
+  # The opt-in Daily Challenge reminder. 18.x is the newest that supports this
+  # app's Dart SDK floor; it needs core library desugaring on Android.
+  flutter_local_notifications: ^18.0.1
   flutter_riverpod: ^2.5.1
   google_mobile_ads: ^8.0.0
   in_app_review: ^2.0.9
   riverpod_annotation: ^2.3.5
   share_plus: ^9.0.0
   shared_preferences: ^2.2.3
+  # Schedules the reminder at an exact instant (flutter_local_notifications
+  # takes a TZDateTime).
+  timezone: ^0.10.1
   url_launcher: ^6.3.1
+  # Keeps the screen on during a Hi-Lo Training game, where the player
+  # watches cards for a minute or more without touching the phone.
+  wakelock_plus: ^1.5.2
   # The pure-Dart client. The transport layer uses this rather than
   # supabase_flutter so it can be driven from a plain `dart run` script
   # against the live service, with no Flutter bindings.

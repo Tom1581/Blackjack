@@ -1,74 +1,82 @@
 # Pick up here
 
 Short notes for resuming work on Hi-Lo Blackjack Trainer. Last updated
-**2026-09-29**. The long version, with every bug and design decision, is
-`HANDOVER.md` → "What is built, and what is next".
+**2026-10-02**. The long version, with every bug and design decision, is
+`HANDOVER.md`.
 
 ## Where things stand
 
-- **Version `1.3.0+11`**, built but **not uploaded**. The release bundle is at
-  `build/app/outputs/bundle/release/app-release.aab` (49.6 MB).
-- **Nothing from the last two work sessions is committed.** Every change is
-  still in the working tree (`git status`), on `main`. Last commit is
-  `e56b27f Prepare 1.1.5 online trainer release`.
-- `flutter test` → **489 passing**, five clean full runs in a row.
-  `flutter analyze` → 0 errors, 0 warnings (95 style "info" notes, all older
-  than this work).
-- Live checks on 2026-09-29: the weekly rankings table is live, anonymous
-  sign-in is on, and real players are on the board.
+- **Version `1.4.0+13`.** The signed release bundle builds:
+  `build/app/outputs/bundle/release/app-release.aab` (50.4 MB). Not uploaded.
+- **Git:** 1.4 is committed on branch `hilo-training-1.4` and **not pushed**.
+  `main` (= GitHub) holds `055e9b3 1.3.1`, which Codex pushed with the Hi-Lo
+  leaderboards.
+- `flutter test` → **601 passing**. `flutter analyze` → 0 errors, 0 warnings
+  (95 style notes, all older than this work).
+- **Supabase is fully set up** (checked by Codex 2026-10-01): the accuracy
+  league, the Hi-Lo Daily board and the weekly Survival board are live, and
+  anonymous writes are refused. No SQL is waiting.
 
-## What was done
+## What 1.4 adds
 
-**Session 1 (2026-09-28): audit, 13 bugs fixed.** The worst ones:
+**Hi-Lo Training** (lobby button, and a tile in the Training Center). A
+dealer deals real rounds; at a random card it stops and asks for the running
+count.
 
-- The dealer's badge showed the hole card's total.
-- A dealer ace plus a player blackjack threw an error.
-- Changing rules mid-hand deleted the bet.
-- The first rules change after launch never reached the dealer.
-- The Stats screen always showed zero.
-- Reshuffles were silent.
+- **Modes:**
+  - *Daily Challenge:* the same shoe for everyone, one ranked try, and a
+    shared leaderboard.
+  - *Survival:* lives and levels, with a weekly leaderboard.
+  - *Duel:* pass-and-play on one phone.
+  - *Practice:* optionally asks for the true count too.
+- **Friend challenge codes:** a share message carries a code that deals the
+  same shoe. The friend can paste the whole message into the app.
+- **Optional Daily reminder:** off by default, and asks for notification
+  permission when switched on. Only one reminder is ever pending, so a player
+  who stops playing gets one nudge, not a daily one.
+- **Screen stays on** during a game; it is allowed to sleep when paused,
+  finished or in the background.
+- **Code and tests:** everything lives in `lib/features/hilo_training/`. Tests
+  are in `test/hilo_training_test.dart`, `hilo_training_widget_test.dart`,
+  `hilo_training_extras_test.dart` and `hilo_boards_test.dart`.
 
-Also added in that session: the Training Center, count-check quiz, discard
-tray, rebet button and strategy chart.
+## Do next (in order)
 
-**Session 2 (2026-09-29): the roadmap, finished.**
-
-- A 2-deck strategy chart.
-- Late surrender, with two new tables.
-- Index plays (Illustrious 18 / Fab 4), at the table and as a drill.
-- A bet spread coach.
-- An accuracy league on the leaderboard.
-- The table now fits short phones.
-
-## Do next (in this order)
-
-1. **Commit.** Suggested message: "1.3.0: audit fixes, Training Center,
-   2-deck chart, surrender, index plays, bet coach, accuracy league".
-2. **Apply the accuracy-league database change.** In Supabase → SQL Editor,
-   run `supabase/migrations/20260929000000_weekly_accuracy.sql`. It is safe
-   with the current live app. Check it worked:
+1. **Merge and push.**
    ```bash
-   curl -s "https://yktyobprlradqtvmqfki.supabase.co/rest/v1/weekly_rankings?select=decisions&limit=1" \
-     -H "apikey: sb_publishable_foYtDGPKyHV_wpdgjPcsjg_0x25jZMm"
+   git checkout main && git merge hilo-training-1.4 && git push
    ```
-   The answer should be `[]` or rows. Before the change it answers
-   `42703 ... does not exist`. Until then the Accuracy tab says "being set
-   up" and everything else works.
-3. **Upload the AAB** in Play Console → Production. If `1.2.0+10` was never
-   uploaded, skip it and upload `1.3.0+11`.
-4. **Refresh the store listing.** The title, description and release notes
-   in `store-assets/google-play/listing-text.md` are ready and within Play's
-   limits. The screenshots are stale. Shoot these:
-   - the Training Center
-   - a surrender table (five buttons)
-   - the strategy chart
-   - the Accuracy tab
-5. **Play on a real phone** for a few rounds. So far the new screens have
-   only been checked with rendered screenshots, never on a device. Try:
-   - surrender
-   - index plays on, with the count display hidden
-   - the bet coach
-   - a reshuffle
+2. **Turn on the challenge link page.** Optional, but it makes shared
+   challenges one tap.
+   - **Publish:** GitHub → repo *Blackjack* → Settings → Pages → *Deploy from
+     a branch* → `main`, folder `/docs`. After a minute this works:
+     `https://tom1581.github.io/Blackjack/challenge/?c=7Q2M-KD9X-A4F`
+   - **Build with the link:**
+     ```bash
+     flutter build appbundle --release \
+       --dart-define=HILO_CHALLENGE_PAGE=https://tom1581.github.io/Blackjack/challenge/
+     ```
+   - *Until then:* shared messages leave the link out, and friends paste the
+     message into the app instead. That always works.
+3. **Upload the AAB** in Play Console → Production.
+   - *Store listing:* paste the text from
+     `store-assets/google-play/listing-text.md`. It is within Play's limits,
+     and the shot list for new screenshots is at the bottom of that file.
+   - *Data safety:* nothing new to declare. The reminder is a local
+     notification and sends no data anywhere.
+4. **Play on a real phone.** The new pieces have only run in tests:
+   - **Reminder:** switch it on, allow notifications, set the hour a few
+     minutes ahead (or change the phone's clock), close the app and wait.
+     Tapping the reminder should open Hi-Lo Training. Then reboot and check it
+     is still scheduled.
+   - **Screen-on:** pick *Rarely* at *Relaxed* pace and don't touch the phone
+     for a minute. The screen must stay on.
+   - **Challenge link:** with the page live, send yourself a challenge, open
+     the link in Chrome and tap *Open in the app*.
+   - **Android 12L or later:** the notifications plugin's docs mention old
+     reports of a crash with desugaring on 12L+. Launch the app once on such
+     a phone.
+   - **Back gesture:** back out of a ranked Daily — it must ask first.
 
 ## Still open
 
@@ -90,16 +98,22 @@ tray, rebet button and strategy chart.
   it and the engine skips the resplit.
 - **Index plays for 2-deck games.** The numbers are different; only 4+ deck
   shoes use index plays.
-- **iOS.** No AdMob setup for iOS (HANDOVER B4).
+- **iOS.** There's no AdMob setup for iOS (HANDOVER B4). The Daily reminder
+  also has no iOS wiring: AppDelegate would need the notification-center
+  delegate. Challenge links have their URL scheme in `Info.plist`, but that
+  has never been tested.
+- **Verified https app links.** The challenge page hands off with an
+  `intent://` link instead. That needs no `assetlinks.json` and no signing-key
+  fingerprint.
 - **Analytics and crash reporting.** Deliberately not added yet (HANDOVER B0).
 
 **Ideas for more players (the real bottleneck is reach, not features):**
 
 - Translations of the store listing. This is the cheapest reach lever and is
   still unused.
-- A score that can't be faked. The leaderboard trusts whatever the app sends;
-  only a server-side dealer can fix that (see the memory notes on Supabase
-  open items).
+- A score that can't be faked. Every leaderboard, the Hi-Lo boards included,
+  trusts what the app sends within plausibility checks. Only a server-side
+  dealer can fix that.
 
 ## How to check things
 
@@ -111,6 +125,7 @@ tray, rebet button and strategy chart.
 | Every strategy chart cell | `flutter test test/strategy_reference_test.dart` |
 | Re-derive chart cells independently | `cd tool/strategy_check && python3 crosscheck_cells.py` (slow, about 30 minutes) |
 | Accuracy-league SQL cases | see the header of `tool/sql_checks/weekly_accuracy_check.sql` (needs Docker) |
+| Hi-Lo leaderboard SQL cases | see the header of `tool/sql_checks/hilo_boards_check.sql` (needs Docker) |
 | Online multiplayer against the real server | `flutter test test/live/live_table_check.dart` |
 
 ## Traps we already hit (don't repeat them)
@@ -125,7 +140,18 @@ tray, rebet button and strategy chart.
 - **Flushing Riverpod in widget tests:** use
   `tester.pump(const Duration(milliseconds: 1))`. A bare `pump()` doesn't
   fire Riverpod's zero-duration timer.
+- **Page transitions take 800 ms** in this Flutter version. Widget tests
+  must pump at least 900 ms after a push. A pushed route also spends its
+  first frame offstage.
+- **`Stopwatch` runs on real time,** even under the widget tester's fake
+  clock.
+- **Roboto has no "→" glyph.** It renders as a box in the app (fine in
+  shared text and on the web page).
+- **Never put the challenge code in a `code` query parameter.**
+  supabase_flutter treats any incoming link with `?code=` as a sign-in
+  callback. Challenge links carry it in the path.
 - **Formatting:** never run `dart format` on whole folders. It rewrites
-  untouched files.
+  untouched files. (This happened twice; both times it had to be undone with
+  `git checkout`.)
 - **Strategy data:** change the reference charts or index numbers only from
   a verified source, then re-run the reference test. Never from memory.

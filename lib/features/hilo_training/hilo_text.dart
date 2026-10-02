@@ -4,6 +4,7 @@ import '../../core/growth/share_messages.dart' show hiLoBlackjackPlayStoreUrl;
 import '../../core/models/card_model.dart';
 import '../training/drills.dart' show hiLoTag;
 import 'hilo_game.dart';
+import 'hilo_links.dart';
 import 'hilo_scoring.dart';
 import 'hilo_training_session.dart';
 
@@ -190,8 +191,7 @@ String shareText(HiLoGame game) {
       '${answerGrid(p.answers)}\n'
       '${p.correct}/${p.answered} counts right · best streak ${p.bestStreak}\n'
       '${tcAsked > 0 ? 'True counts $tcRight/$tcAsked\n' : ''}\n'
-      'Same shoe, your turn — challenge code $code\n'
-      '(Hi-Lo Training → Enter a friend\'s code)\n'
+      '${_howToPlay(code)}\n'
       '$hiLoBlackjackPlayStoreUrl';
 }
 
@@ -204,8 +204,7 @@ String dailyShareText(int day, int score) {
     score: score,
   ).encode();
   return 'Hi-Lo Daily #$day — ${points(score)} pts\n'
-      'Same shoe, your turn — challenge code $code\n'
-      '(Hi-Lo Training → Enter a friend\'s code)\n'
+      '${_howToPlay(code)}\n'
       '$hiLoBlackjackPlayStoreUrl';
 }
 
@@ -214,4 +213,13 @@ String countdown(Duration d) {
   final h = d.inHours;
   final m = d.inMinutes % 60;
   return h > 0 ? '${h}h ${m}m' : '${max(1, m)}m';
+}
+
+/// How a friend plays a shared code: tap the link once the challenge page is
+/// live, or paste the message into the app.
+String _howToPlay(String code) {
+  final link = HiLoLinks.pageLink(code);
+  return 'Same shoe, your turn — challenge code $code\n'
+      '${link != null ? 'Tap to play: $link\n' : ''}'
+      '(Hi-Lo Training → Enter a friend\'s code → Paste)';
 }

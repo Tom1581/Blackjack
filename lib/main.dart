@@ -9,6 +9,7 @@ import 'core/rules/rules_store.dart';
 import 'core/settings/table_prefs.dart';
 import 'core/strategy/strategy_coach.dart';
 import 'core/supabase/supabase_service.dart';
+import 'features/hilo_training/daily_reminder.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -35,4 +36,7 @@ Future<void> main() async {
   runApp(const ProviderScope(child: BlackjackApp()));
   // Single-player must never wait for a network request during app launch.
   unawaited(AppSupabase.tryInitialize());
+  // Only does anything for a player who switched the Daily reminder on:
+  // routes a tapped reminder and moves the pending one along.
+  unawaited(DailyReminder.start());
 }

@@ -6,8 +6,12 @@ import '../hilo_game.dart';
 import '../hilo_text.dart';
 
 /// Ask for a friend's challenge code, show what it deals, and return it once
-/// the player chooses to play. Null if they back out.
-Future<HiLoChallenge?> showChallengeCodeSheet(BuildContext context) {
+/// the player chooses to play. Null if they back out. [initial] fills the
+/// code in — a challenge link that opened the app.
+Future<HiLoChallenge?> showChallengeCodeSheet(
+  BuildContext context, {
+  HiLoChallenge? initial,
+}) {
   return showModalBottomSheet<HiLoChallenge>(
     context: context,
     backgroundColor: AppColors.surface,
@@ -15,12 +19,14 @@ Future<HiLoChallenge?> showChallengeCodeSheet(BuildContext context) {
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
-    builder: (context) => const _CodeSheet(),
+    builder: (context) => _CodeSheet(initial: initial),
   );
 }
 
 class _CodeSheet extends StatefulWidget {
-  const _CodeSheet();
+  final HiLoChallenge? initial;
+
+  const _CodeSheet({this.initial});
 
   @override
   State<_CodeSheet> createState() => _CodeSheetState();
@@ -29,6 +35,17 @@ class _CodeSheet extends StatefulWidget {
 class _CodeSheetState extends State<_CodeSheet> {
   final _controller = TextEditingController();
   HiLoChallenge? _challenge;
+  String? _pasteNote;
+
+  @override
+  void initState() {
+    super.initState();
+    final initial = widget.initial;
+    if (initial != null) {
+      _controller.text = initial.encode();
+      _challenge = initial;
+    }
+  }
 
   @override
   void dispose() {
@@ -36,8 +53,49 @@ class _CodeSheetState extends State<_CodeSheet> {
     super.dispose();
   }
 
+  /// A typed code, or a whole message pasted into the field: either way the
+  /// field ends up holding just the code.
   void _changed(String text) {
-    setState(() => _challenge = HiLoChallenge.decode(text));
+    var challenge = HiLoChallenge.decode(text);
+    if (challenge == null && text.length > 14) {
+      challenge = HiLoChallenge.findIn(text);
+      if (challenge != null) _setText(challenge.encode());
+    }
+    setState(() {
+      _challenge = challenge;
+      _pasteNote = null;
+    });
+  }
+
+  void _setText(String code) {
+    _controller.value = TextEditingValue(
+      text: code,
+      selection: TextSelection.collapsed(offset: code.length),
+    );
+  }
+
+  /// Read the clipboard and pull the code out of whatever is there — the
+  /// friend's whole message is fine.
+  Future<void> _paste() async {
+    HapticFeedback.selectionClick();
+    String? text;
+    try {
+      text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+    } catch (_) {
+      text = null;
+    }
+    if (!mounted) return;
+    final challenge = text == null ? null : HiLoChallenge.findIn(text);
+    setState(() {
+      if (challenge != null) {
+        _setText(challenge.encode());
+        _challenge = challenge;
+        _pasteNote = null;
+      } else {
+        _pasteNote = 'No challenge code on the clipboard. Copy your '
+            'friend\'s message, then tap PASTE.';
+      }
+    });
   }
 
   @override
@@ -75,13 +133,10 @@ class _CodeSheetState extends State<_CodeSheet> {
             TextField(
               key: const ValueKey('hilo-code-field'),
               controller: _controller,
-              autofocus: true,
+              // A link that opened the app has filled the code in already.
+              autofocus: widget.initial == null,
               onChanged: _changed,
               textCapitalization: TextCapitalization.characters,
-              inputFormatters: [
-                FilteringTextInputFormatter.allow(RegExp(r'[A-Za-z0-9\- ]')),
-                LengthLimitingTextInputFormatter(16),
-              ],
               style: const TextStyle(
                 color: Colors.white,
                 fontSize: 22,
@@ -111,7 +166,27 @@ class _CodeSheetState extends State<_CodeSheet> {
                 ),
               ),
             ),
-            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                key: const ValueKey('hilo-code-paste'),
+                onPressed: _paste,
+                icon: const Icon(Icons.content_paste, size: 18),
+                label: const Text('PASTE'),
+              ),
+            ),
+            if (_pasteNote case final note?)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Text(
+                  note,
+                  key: const ValueKey('hilo-code-paste-note'),
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.6),
+                    fontSize: 12,
+                  ),
+                ),
+              ),
             if (c != null)
               Container(
                 padding: const EdgeInsets.all(12),

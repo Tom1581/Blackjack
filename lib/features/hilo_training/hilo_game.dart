@@ -523,6 +523,24 @@ class HiLoChallenge {
     return '${s.substring(0, 4)}-${s.substring(4, 8)}-${s.substring(8)}';
   }
 
+  /// The first valid code anywhere in [text] — a whole pasted message, a
+  /// link — or null. Codes are looked for as whole words, dashed form first,
+  /// so a run of letters inside a URL is never mistaken for one.
+  static HiLoChallenge? findIn(String text) {
+    final patterns = [
+      RegExp(r'(?<![0-9A-Za-z])[0-9A-Za-z]{4}-[0-9A-Za-z]{4}-[0-9A-Za-z]{3}'
+          r'(?![0-9A-Za-z])'),
+      RegExp(r'(?<![0-9A-Za-z])[0-9A-Za-z]{11}(?![0-9A-Za-z])'),
+    ];
+    for (final pattern in patterns) {
+      for (final match in pattern.allMatches(text)) {
+        final challenge = decode(match[0]!);
+        if (challenge != null) return challenge;
+      }
+    }
+    return null;
+  }
+
   /// The challenge in [text], or null if it is not a valid code. Case,
   /// dashes, spaces and the look-alikes O, I and L are forgiven.
   static HiLoChallenge? decode(String text) {

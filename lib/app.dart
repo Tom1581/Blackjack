@@ -1,19 +1,66 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'core/onboarding/onboarding.dart';
+import 'features/hilo_training/daily_reminder.dart';
+import 'features/hilo_training/hilo_links.dart';
+import 'features/hilo_training/hilo_training_screen.dart';
 import 'features/lobby/lobby_screen.dart';
 import 'features/onboarding/onboarding_screen.dart';
 import 'features/table/table_screen.dart';
 import 'theme/app_theme.dart';
 
-class BlackjackApp extends StatelessWidget {
+/// The root navigator, so a challenge link or a tapped Daily reminder can
+/// open Hi-Lo Training from whatever screen the app is on.
+final appNavigatorKey = GlobalKey<NavigatorState>();
+
+class BlackjackApp extends StatefulWidget {
   const BlackjackApp({super.key});
+
+  @override
+  State<BlackjackApp> createState() => _BlackjackAppState();
+}
+
+class _BlackjackAppState extends State<BlackjackApp> {
+  StreamSubscription<Uri>? _links;
+
+  @override
+  void initState() {
+    super.initState();
+    _links = HiLoLinks.listen(
+      (challenge) => _open(HiLoTrainingScreen(initialChallenge: challenge)),
+    );
+    DailyReminder.onOpen = () => _open(const HiLoTrainingScreen());
+  }
+
+  @override
+  void dispose() {
+    _links?.cancel();
+    DailyReminder.onOpen = null;
+    super.dispose();
+  }
+
+  /// Push [screen] once the navigator exists — a link can arrive before the
+  /// first frame.
+  void _open(Widget screen, [int attempt = 0]) {
+    final navigator = appNavigatorKey.currentState;
+    if (navigator == null) {
+      if (attempt < 10) {
+        WidgetsBinding.instance
+            .addPostFrameCallback((_) => _open(screen, attempt + 1));
+      }
+      return;
+    }
+    navigator.push(MaterialPageRoute(builder: (_) => screen));
+  }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       title: 'Blackjack — Hi-Lo',
       debugShowCheckedModeBanner: false,
+      navigatorKey: appNavigatorKey,
       theme: buildAppTheme(),
       home: const FirstRunGate(),
     );

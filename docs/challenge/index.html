@@ -1,0 +1,141 @@
+<!doctype html>
+<!--
+  Hi-Lo Blackjack Trainer — challenge link page.
+
+  A shared Hi-Lo challenge links here (…/challenge/?c=7Q2M-KD9X-A4F). Chat
+  apps make an https link tappable but not the app's own hilobj:// scheme, so
+  this page's button does the hand-off: on Android an intent:// link opens the
+  app on the challenge, or Google Play if it is not installed.
+
+  Published with GitHub Pages from the repo's /docs folder. Once live, build
+  the app with --dart-define=HILO_CHALLENGE_PAGE=<this page's URL> so shared
+  messages include the link (see PICK_UP_HERE.md).
+
+  Self-contained: no scripts, fonts or images from anywhere else.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>Hi-Lo Challenge</title>
+<style>
+  :root {
+    --felt: #0b2116;
+    --felt-light: #1a4828;
+    --gold: #d4af37;
+    --gold-light: #ffe680;
+    --wood: #2c1208;
+    --text: #f4f1e8;
+    --muted: rgba(244, 241, 232, 0.65);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    color: var(--text);
+    background: radial-gradient(ellipse at 50% 20%, var(--felt-light), var(--felt) 60%, #050e08);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 16px;
+  }
+  main { width: 100%; max-width: 420px; min-width: 0; text-align: center; }
+  .suits { color: var(--gold); letter-spacing: 10px; font-size: 18px; opacity: 0.8; }
+  h1 { margin: 12px 0 4px; font-size: 26px; letter-spacing: 3px; color: var(--gold); }
+  p { color: var(--muted); line-height: 1.5; margin: 8px 0; }
+  .code {
+    margin: 22px 0 6px;
+    padding: 16px;
+    border: 1.5px solid var(--gold);
+    border-radius: 14px;
+    background: rgba(0, 0, 0, 0.3);
+    /* Thirteen characters must fit a 320px phone. */
+    font-size: clamp(20px, 7vw, 30px);
+    font-weight: 900;
+    letter-spacing: clamp(1px, 0.8vw, 4px);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+  }
+  .button {
+    display: block;
+    margin: 12px 0 0;
+    padding: 15px;
+    border-radius: 12px;
+    font-weight: 900;
+    letter-spacing: 1px;
+    text-decoration: none;
+    font-size: 16px;
+    border: 1.5px solid var(--gold);
+    cursor: pointer;
+    width: 100%;
+    font-family: inherit;
+  }
+  .primary { background: linear-gradient(var(--gold-light), var(--gold)); color: var(--wood); }
+  .secondary { background: transparent; color: var(--gold); }
+  .steps { margin-top: 22px; font-size: 14px; }
+  .hidden { display: none; }
+</style>
+</head>
+<body>
+<main>
+  <div class="suits" aria-hidden="true">♠ ♥ ♦ ♣</div>
+  <h1>HI-LO CHALLENGE</h1>
+
+  <section id="challenge" class="hidden">
+    <p>A friend dealt you their shoe. Keep the running count and beat their
+      score — same cards, same dealer.</p>
+    <div class="code" id="code" aria-label="Challenge code"></div>
+    <a class="button primary" id="open" href="#">OPEN IN THE APP</a>
+    <button class="button secondary" id="copy" type="button">COPY CODE</button>
+    <p class="steps">No app yet? Install it, then open
+      <b>Hi-Lo Training → Enter a friend's code → Paste</b>.</p>
+  </section>
+
+  <section id="nocode" class="hidden">
+    <p>This challenge link is missing its code. Ask your friend to share it
+      again — or start your own count in the app.</p>
+  </section>
+
+  <a class="button secondary" id="store"
+     href="https://play.google.com/store/apps/details?id=io.github.a15817348.hiloblackjacktrainer">
+    GET HI-LO BLACKJACK TRAINER
+  </a>
+</main>
+<script>
+  (function () {
+    var PACKAGE = 'io.github.a15817348.hiloblackjacktrainer';
+    var STORE = document.getElementById('store').href;
+
+    // The app's own check digit catches typos; here only the shape is checked.
+    var raw = (new URLSearchParams(location.search).get('c') || '')
+      .toUpperCase().replace(/[^0-9A-Z]/g, '');
+    if (raw.length !== 11) {
+      document.getElementById('nocode').classList.remove('hidden');
+      return;
+    }
+    var code = raw.slice(0, 4) + '-' + raw.slice(4, 8) + '-' + raw.slice(8);
+    document.getElementById('challenge').classList.remove('hidden');
+    document.getElementById('code').textContent = code;
+
+    var path = 'challenge/' + code;
+    var android = /Android/i.test(navigator.userAgent);
+    document.getElementById('open').href = android
+      ? 'intent://' + path + '#Intent;scheme=hilobj;package=' + PACKAGE +
+        ';S.browser_fallback_url=' + encodeURIComponent(STORE) + ';end'
+      : 'hilobj://' + path;
+
+    var copy = document.getElementById('copy');
+    copy.addEventListener('click', function () {
+      var done = function () { copy.textContent = 'COPIED'; };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(done, function () {});
+      } else {
+        window.prompt('Copy this code:', code);
+      }
+    });
+  })();
+</script>
+</body>
+</html>

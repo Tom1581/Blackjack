@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../theme/app_theme.dart';
 import '../drill/daily_count_drill_screen.dart';
+import '../hilo_training/hilo_training_screen.dart';
 import '../strategy/strategy_chart_screen.dart';
 import '../table/table_provider.dart';
 import 'index_drill_screen.dart';
@@ -82,6 +83,16 @@ class TrainingCenterScreen extends StatelessWidget {
               blurb: 'Cards flash by at table pace; keep the running count '
                   'in your head. Includes the classic deck countdown.',
               onTap: () => open(const SpeedCountScreen()),
+            ),
+            _StepTile(
+              label: 'GAME',
+              icon: Icons.style_outlined,
+              title: 'Hi-Lo Training',
+              blurb:
+                  'The same skill at a real table: a dealer deals rounds and '
+                  'stops at random to ask the count. Daily Challenge, Survival '
+                  'and Duel.',
+              onTap: () => open(const HiLoTrainingScreen()),
             ),
             _StepTile(
               step: 4,

@@ -10,11 +10,13 @@ import '../../theme/app_theme.dart';
 import '../online/widgets/felt_background.dart';
 import '../table/widgets/discard_tray.dart';
 import '../training/training_widgets.dart';
+import 'daily_reminder.dart';
 import 'hilo_boards_service.dart';
 import 'hilo_game.dart';
 import 'hilo_text.dart';
 import 'hilo_training_progress.dart';
 import 'hilo_training_session.dart';
+import 'screen_awake.dart';
 import 'widgets/confetti.dart';
 import 'widgets/count_quiz_panel.dart';
 import 'widgets/hilo_results_view.dart';
@@ -80,13 +82,27 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
     _dealTimer?.cancel();
     _answerTimer?.cancel();
     _flashTimer?.cancel();
+    unawaited(ScreenAwake.set(false));
     super.dispose();
+  }
+
+  /// The app is on screen. The wake lock only matters while it is.
+  bool _foreground = true;
+
+  /// Hold the screen on while cards are being dealt or a question is up —
+  /// the player watches without touching the phone — and let it sleep when
+  /// the game is paused, over, or not on screen.
+  void _syncWake() {
+    unawaited(
+        ScreenAwake.set(mounted && _foreground && !_finished && !_paused));
   }
 
   /// Leaving the app pauses the dealer rather than dealing on unseen, and
   /// stops the answer clock — a phone call should not cost a question.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    _syncWake();
     if (_finished) return;
     if (state != AppLifecycleState.resumed) {
       if (!_paused && _quiz == _Quiz.none) _togglePause();
@@ -118,6 +134,7 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
     // Long enough for the page to finish sliding in and the opening banner
     // to be read before the first card.
     _scheduleTick(const Duration(milliseconds: 1800));
+    _syncWake();
   }
 
   Future<void> _loadBest(HiLoGameSpec spec) async {
@@ -310,6 +327,7 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
       _dealTimer?.cancel();
       setState(() => _paused = true);
     }
+    _syncWake();
   }
 
   int get _answersGiven => _game.players.fold(0, (n, p) => n + p.answered);
@@ -389,6 +407,7 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
       _finished = true;
       _quiz = _Quiz.none;
     });
+    _syncWake();
     HiLoGameReward reward;
     try {
       reward = await HiLoTrainingProgress.recordGame(game);
@@ -399,6 +418,10 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
     }
     // Shared-board failures must never delay or hide the local result.
     unawaited(HiLoBoardsService.submitGame(game));
+    // Today's shoe is played: the pending reminder moves to tomorrow.
+    if (game.spec.mode == HiLoMode.daily) {
+      unawaited(DailyReminder.refresh());
+    }
     // PLAY AGAIN may already have started the next game.
     if (!mounted || !identical(game, _game)) return;
     if (reward.newBest ||

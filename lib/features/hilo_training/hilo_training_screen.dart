@@ -7,6 +7,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../theme/app_theme.dart';
 import '../training/training_widgets.dart';
+import 'daily_reminder.dart';
 import 'hilo_boards_service.dart';
 import 'widgets/hilo_button.dart';
 import 'hilo_game.dart';
@@ -29,7 +30,15 @@ class HiLoTrainingScreen extends StatefulWidget {
   /// The clock, for tests.
   final DateTime Function() now;
 
-  const HiLoTrainingScreen({super.key, this.now = DateTime.now});
+  /// A friend's challenge from a link that opened the app: the code sheet
+  /// opens on it.
+  final HiLoChallenge? initialChallenge;
+
+  const HiLoTrainingScreen({
+    super.key,
+    this.now = DateTime.now,
+    this.initialChallenge,
+  });
 
   @override
   State<HiLoTrainingScreen> createState() => _HiLoTrainingScreenState();
@@ -45,6 +54,12 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
   void initState() {
     super.initState();
     _reload();
+    final linked = widget.initialChallenge;
+    if (linked != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _enterCode(initial: linked);
+      });
+    }
     // Keeps "next shoe in …" honest and rolls over at midnight.
     _minuteTimer = Timer.periodic(const Duration(minutes: 1), (_) {
       if (!mounted) return;
@@ -63,6 +78,8 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
     final profile = await HiLoTrainingProgress.loadProfile();
     if (mounted) setState(() => _profile = profile);
     unawaited(_loadDailyBoard());
+    // Every visit moves the one pending reminder to the next unplayed shoe.
+    unawaited(DailyReminder.refresh());
   }
 
   Future<void> _loadDailyBoard() async {
@@ -97,8 +114,8 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
     showHiLoSurvivalBoardSheet(context);
   }
 
-  Future<void> _enterCode() async {
-    final challenge = await showChallengeCodeSheet(context);
+  Future<void> _enterCode({HiLoChallenge? initial}) async {
+    final challenge = await showChallengeCodeSheet(context, initial: initial);
     if (challenge == null || !mounted) return;
     await _open(HiLoGameScreen(spec: HiLoGameSpec.fromChallenge(challenge)));
   }
@@ -144,6 +161,8 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
                   onBoard: _openDailyBoard,
                   onShare: _shareDaily,
                 ),
+                const SizedBox(height: 8),
+                const _ReminderRow(),
                 const SizedBox(height: 14),
                 _ModeTile(
                   key: const ValueKey('hilo-mode-survival'),
@@ -195,6 +214,145 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
                 const _ScoringCard(),
               ],
             ),
+    );
+  }
+}
+
+/// "Remind me": an opt-in nudge when the day's shoe is still unplayed.
+class _ReminderRow extends StatefulWidget {
+  const _ReminderRow();
+
+  @override
+  State<_ReminderRow> createState() => _ReminderRowState();
+}
+
+class _ReminderRowState extends State<_ReminderRow> {
+  bool? _on;
+  int _hour = DailyReminder.defaultHour;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    DailyReminder.load().then((s) {
+      if (mounted) {
+        setState(() {
+          _on = s.on;
+          _hour = s.hour;
+        });
+      }
+    });
+  }
+
+  Future<void> _toggle(bool on) async {
+    if (_busy) return;
+    HapticFeedback.selectionClick();
+    setState(() => _busy = true);
+    var allowed = true;
+    try {
+      if (on) {
+        allowed = await DailyReminder.enable(_hour);
+      } else {
+        await DailyReminder.disable();
+      }
+    } catch (error) {
+      debugPrint('Daily reminder: $error');
+      allowed = false;
+    }
+    if (!mounted) return;
+    setState(() {
+      _busy = false;
+      _on = on && allowed;
+    });
+    if (on && !allowed) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+        content: Text('Notifications are off for this app. Allow them in '
+            'your phone\'s settings to get the reminder.'),
+        behavior: SnackBarBehavior.floating,
+      ));
+    }
+  }
+
+  Future<void> _setHour(int hour) async {
+    HapticFeedback.selectionClick();
+    setState(() => _hour = hour);
+    await DailyReminder.setHour(hour);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final on = _on;
+    if (on == null) return const SizedBox(height: 48);
+    return Container(
+      key: const ValueKey('hilo-reminder'),
+      padding: const EdgeInsets.fromLTRB(14, 4, 6, 4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.2),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.08)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                on
+                    ? Icons.notifications_active_outlined
+                    : Icons.notifications_none,
+                size: 18,
+                color: AppColors.gold.withValues(alpha: on ? 1 : 0.6),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  on
+                      ? 'Reminder at ${DailyReminder.hourLabel(_hour)} if '
+                          'the day\'s shoe is unplayed'
+                      : 'Remind me about the Daily',
+                  style: TextStyle(
+                    color: Colors.white.withValues(alpha: 0.75),
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+              Switch(
+                key: const ValueKey('hilo-reminder-switch'),
+                value: on,
+                onChanged: _busy ? null : _toggle,
+              ),
+            ],
+          ),
+          if (on)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8, right: 8),
+              child: Wrap(
+                spacing: 6,
+                runSpacing: 6,
+                children: [
+                  for (final h in DailyReminder.hours)
+                    ChoiceChip(
+                      label: Text(DailyReminder.hourLabel(h)),
+                      selected: h == _hour,
+                      onSelected: (_) => _setHour(h),
+                      selectedColor: AppColors.gold,
+                      labelStyle: TextStyle(
+                        color: h == _hour ? AppColors.wood : Colors.white70,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 12,
+                      ),
+                      backgroundColor: Colors.black.withValues(alpha: 0.25),
+                      side: BorderSide(
+                          color: AppColors.gold.withValues(alpha: 0.35)),
+                      showCheckmark: false,
+                      visualDensity: VisualDensity.compact,
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }

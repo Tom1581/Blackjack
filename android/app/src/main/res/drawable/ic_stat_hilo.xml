@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Daily Challenge reminder's small icon: a spade. Android draws a
+     notification's small icon from its alpha alone, so it is plain white. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2C12,2 4,8.6 4,13.6C4,16.4 6.1,18.3 8.5,18.3C9.6,18.3 10.6,17.9 11.3,17.2C11.1,19.1 10.3,20.6 9,22L15,22C13.7,20.6 12.9,19.1 12.7,17.2C13.4,17.9 14.4,18.3 15.5,18.3C17.9,18.3 20,16.4 20,13.6C20,8.6 12,2 12,2Z" />
+</vector>

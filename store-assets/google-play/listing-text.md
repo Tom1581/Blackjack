@@ -46,6 +46,17 @@ table and tells you when a play was wrong — "16 vs 5, basic strategy says
 Stand". Accuracy is tracked by hard totals, soft totals and pairs, and the
 hands you miss most are listed so you can drill them.
 
+HI-LO TRAINING — COUNT AT A REAL TABLE
+A dealer deals real rounds to a full table and stops at a random card to ask
+for the running count. The hole card stays face down until it is turned, the
+shoe gets reshuffled, and the clock is running.
+- Daily Challenge: everyone gets the same shoe, one ranked try a day
+- Survival: three lives, and the dealer speeds up every five counts
+- Duel: two players on one phone, secret answers, one winner
+- Practice: your table and pace, with true-count questions too
+- Challenge a friend with a code that deals them your exact shoe
+- Ranks, achievements, combos, and an optional daily reminder
+
 TRAINING CENTER
 - Strategy Drill: flash-card hands with instant feedback, or only your misses
 - Strategy Chart: the exact chart the coach grades you on, for your rules
@@ -91,13 +102,18 @@ cash out virtual chips. Nothing here is a guarantee of results in a casino.
 ## Release Notes (500 char limit)
 
 ```
-New in 1.3.1:
+New in 1.4:
 
-- Hi-Lo Daily leaderboard: one shared shoe and one ranked attempt each day
-- Weekly Survival leaderboard: your best run earns the rank
-- New leaderboard screens for daily and weekly Hi-Lo training
-- Better offline handling when rankings cannot be reached
+- Hi-Lo Training: a dealer deals real rounds and asks for the count at random
+- Daily Challenge with a shared leaderboard, plus Survival, Duel and Practice
+- Challenge a friend with a code that deals them your exact shoe
+- True-count questions, ranks, achievements and combos
+- An optional reminder when the day's shoe is ready
+- The screen stays on while you count
 ```
+
+If 1.3.1 (the first build with Hi-Lo Training) was already published, these
+notes still read correctly — 1.4 is the first release that announces it.
 
 ## Notes for whoever edits this next
 
@@ -106,12 +122,16 @@ New in 1.3.1:
 - **Translations are the cheapest reach you have.** The listing is short and
   Play will machine-translate it; even five languages meaningfully widens
   who can be shown the app.
-- **Screenshots are stale.** They predate online multiplayer. The lobby and a
-  five-seat table are the two shots that differentiate this app from every
-  other blackjack trainer — they should be first and second.
-- **The weekly leaderboard is now real** — the 25 simulated competitors are
-  gone and players rank against each other. The listing copy above depends on
-  that being switched on: apply
-  `supabase/migrations/20260825000000_weekly_rankings.sql` and enable
-  anonymous sign-ins **before** you publish this text, or the description
-  promises something the app is quietly falling back from.
+- **Screenshots are stale.** They predate online multiplayer and Hi-Lo
+  Training. Shoot these, in this order:
+  1. Hi-Lo Training mid-round, five seats, the dealer's hole card face down
+  2. The count check with its number pad (a Survival game shows the hearts)
+  3. A verdict with a combo — "+400", "COMBO ×2!"
+  4. The Hi-Lo hub: rank, Daily Challenge card, modes
+  5. The lobby
+  6. A five-seat online table
+  7. The strategy coach correcting a play
+- **Every league in the copy is live** (checked 2026-10-01): the weekly
+  profit and accuracy boards, the Hi-Lo Daily board and the weekly Survival
+  board. If any is ever switched off, take its line out of the description
+  rather than promise something the app quietly falls back from.
