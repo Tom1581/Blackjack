@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import 'core/navigation/app_route_observer.dart';
 import 'core/onboarding/onboarding.dart';
 import 'features/hilo_training/daily_reminder.dart';
 import 'features/hilo_training/hilo_links.dart';
@@ -64,6 +65,7 @@ class _BlackjackAppState extends State<BlackjackApp> {
       title: 'Hi-Lo Blackjack Trainer',
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
+      navigatorObservers: [appRouteObserver],
       theme: buildAppTheme(),
       home: const FirstRunGate(),
     );

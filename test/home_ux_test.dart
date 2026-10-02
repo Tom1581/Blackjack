@@ -10,13 +10,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:blackjack_app/app.dart';
 import 'package:blackjack_app/core/models/card_model.dart';
 import 'package:blackjack_app/core/progress/player_stats.dart';
 import 'package:blackjack_app/core/rules/rule_set.dart';
 import 'package:blackjack_app/core/rules/rules_store.dart';
 import 'package:blackjack_app/core/settings/table_prefs.dart';
 import 'package:blackjack_app/core/strategy/strategy_coach.dart';
+import 'package:blackjack_app/features/hilo_training/daily_reminder.dart';
 import 'package:blackjack_app/features/hilo_training/hilo_game.dart';
+import 'package:blackjack_app/features/hilo_training/hilo_links.dart';
 import 'package:blackjack_app/features/hilo_training/hilo_goals.dart';
 import 'package:blackjack_app/features/hilo_training/hilo_text.dart';
 import 'package:blackjack_app/features/hilo_training/hilo_training_progress.dart';
@@ -30,6 +33,7 @@ import 'package:blackjack_app/features/lobby/session_report.dart';
 import 'package:blackjack_app/features/lobby/widgets/session_report_sheet.dart';
 import 'package:blackjack_app/features/online/online_providers.dart';
 import 'package:blackjack_app/features/profile/player_identity.dart';
+import 'package:blackjack_app/features/table/table_screen.dart';
 import 'package:blackjack_app/features/training/drills.dart';
 import 'package:blackjack_app/features/training/strategy_drill_screen.dart';
 import 'package:blackjack_app/theme/app_theme.dart';
@@ -39,6 +43,24 @@ import 'support/quiet_plugins.dart';
 import 'support/real_fonts.dart';
 
 Finder _key(String k) => find.byKey(ValueKey(k));
+
+/// Reminders off and nothing scheduled, for tests that start the whole app.
+class _NoReminders implements ReminderScheduler {
+  @override
+  Future<void> init(VoidCallback onTap) async {}
+
+  @override
+  Future<bool> requestPermission() async => false;
+
+  @override
+  Future<void> scheduleAt(DateTime when, String title, String body) async {}
+
+  @override
+  Future<void> cancel() async {}
+
+  @override
+  Future<bool> launchedFromReminder() async => false;
+}
 
 /// A record with some play behind it, so the home screen has something to
 /// say — today's Daily already played, so the next step is a drill.
@@ -483,6 +505,54 @@ void main() {
         await close(tester);
       });
     }
+
+    testWidgets(
+        'home catches up with screens it did not open: the intro\'s first '
+        'hand, and a return to the app', (tester) async {
+      DailyReminder.resetForTest(_NoReminders());
+      HiLoLinks.sourceOverride = () => const Stream<Uri>.empty();
+      addTearDown(() => HiLoLinks.sourceOverride = null);
+      quietAdsPlugin(tester);
+      await tester.binding.setSurfaceSize(const Size(360, 740));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(const ProviderScope(child: BlackjackApp()));
+      await tester.pump(const Duration(milliseconds: 300));
+
+      // A first-time player skips the intro and is dealt straight in, on a
+      // table the lobby did not open.
+      await tester.tap(find.text('Skip'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(find.byType(TableScreen), findsOneWidget);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setInt('hands_played', 1);
+
+      Navigator.of(tester.element(find.byType(TableScreen))).pop();
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 900));
+      expect(find.text('Play your first hand'), findsNothing);
+      expect(find.text('Play today\'s Daily Challenge'), findsOneWidget);
+
+      // The Daily gets played somewhere else; coming back to the app
+      // moves the suggestion on.
+      final today = HiLoDaily.numberFor(DateTime.now());
+      await prefs.setString(
+          'hilo_training_profile',
+          jsonEncode(HiLoProfile(
+            games: 1,
+            dailyLastPlayed: today,
+            dailyStreak: 1,
+            dailyScores: {today: 900},
+          ).toJson()));
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 100));
+      expect(find.text('Play today\'s Daily Challenge'), findsNothing);
+      expect(find.text('Keep the count under pressure'), findsOneWidget);
+      await close(tester);
+    });
 
     testWidgets('a long name shortens instead of breaking the row',
         (tester) async {

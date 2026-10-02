@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/ads/ad_service.dart';
 import '../../core/models/card_model.dart';
+import '../../core/navigation/app_route_observer.dart';
 import '../../core/audio/sound_service.dart';
 import '../../core/progress/daily_streak.dart';
 import '../../core/strategy/strategy_coach.dart';
@@ -45,7 +46,7 @@ class LobbyScreen extends ConsumerStatefulWidget {
 }
 
 class _LobbyScreenState extends ConsumerState<LobbyScreen>
-    with TickerProviderStateMixin {
+    with TickerProviderStateMixin, RouteAware, WidgetsBindingObserver {
   late final AnimationController _entranceCtrl;
   late final Animation<double> _entranceFade;
   late final Animation<Offset> _titleSlide;
@@ -96,7 +97,27 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
 
     ref.read(tableProvider.notifier).init();
     unawaited(ref.read(adServiceProvider).initialize());
+    WidgetsBinding.instance.addObserver(this);
     _refreshHome();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route != null) appRouteObserver.subscribe(this, route);
+  }
+
+  /// Back on top after a screen the lobby did not open itself — the table
+  /// the intro deals straight into, or Hi-Lo Training from a reminder or a
+  /// challenge link.
+  @override
+  void didPopNext() => _refreshHome();
+
+  /// Back in the app, perhaps on a new day with a new Daily.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _refreshHome();
   }
 
   /// The player's name, for the profile row ('' until they set one).
@@ -190,6 +211,8 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
 
   @override
   void dispose() {
+    appRouteObserver.unsubscribe(this);
+    WidgetsBinding.instance.removeObserver(this);
     _entranceCtrl.dispose();
     _shimmerCtrl.dispose();
     _floatCtrl.dispose();

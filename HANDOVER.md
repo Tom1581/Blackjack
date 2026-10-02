@@ -375,6 +375,8 @@ or routes. Summary in `PICK_UP_HERE.md` ("What 1.5 changes").
 | Five-seat online table | `online/online_table_screen.dart` | `test/online_full_table_test.dart`: all five seats above the controls on 411 x 731 |
 | Layout checks | `test/support/layout_checks.dart` | Mid-word breaks, clipped text and overlapping controls; a self-test proves each check fires |
 | Store screenshots | `integration_test/store_screenshots_test.dart`, `tool/capture_store_screenshots.py` | Captured on a 1080 x 1920 emulator from the real app |
+| Reminder in release builds | `android/app/proguard-rules.pro` | Release APK on an emulator: on/off/on, fired at its hour, tap opens Hi-Lo Training, survives a reboot. Before the rules: "Missing type parameter" on every cancel or reschedule |
+| Home refreshes on return | `core/navigation/app_route_observer.dart`, `lobby_screen.dart` | Test fails without each half (return to top; app resumed) |
 
 ## The thing none of this fixes
 

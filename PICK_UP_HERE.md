@@ -11,7 +11,7 @@ Short notes for resuming work on Hi-Lo Blackjack Trainer. Last updated
   Not uploaded.
 - **Git:** `main` = GitHub holds 1.4 (`0bbec28`, `807cfca`). The 1.5 work is
   committed on branch **`ux-polish-1.5`, not pushed**.
-- `flutter test` → **653 passing**. `flutter analyze` → 0 errors, 0 warnings.
+- `flutter test` → **654 passing**. `flutter analyze` → 0 errors, 0 warnings.
 - **Supabase is fully set up** (checked by Codex 2026-10-01): the accuracy
   league, the Hi-Lo Daily board and the weekly Survival board are live, and
   anonymous writes are refused. No SQL is waiting.
@@ -47,6 +47,13 @@ the online protocol, ads or rewarded flows, or routes.
   room code shrinks instead of overflowing on a 320 dp phone.
 - **Fixed on a real device:** tall bottom sheets ran under the status bar
   (`useSafeArea`); the Hi-Lo question dim now covers the status bar too.
+- **Fixed in the release build:** the Daily reminder could be switched on
+  once but never off or rescheduled ("Missing type parameter" — R8 stripped
+  what Gson needs), and would have crashed in the background when it fired
+  or after a reboot. `android/app/proguard-rules.pro` fixes it.
+- **Home keeps up:** the next-step card refreshes whenever the home screen is
+  back on top or the app is reopened, not only after screens it opened
+  itself (it said "Play your first hand" after the intro's first hand).
 
 **Tests:** `test/home_ux_test.dart` (next step, report, identity, goals, and
 every new screen at 320/360/390/412 dp — no clipped text, no mid-word breaks,
@@ -109,18 +116,15 @@ count.
      Keep the feature graphic.
    - *Data safety:* nothing new to declare. The reminder is a local
      notification and sends no data anywhere.
-4. **Play on a real phone.** The new pieces have only run in tests:
-   - **Reminder:** switch it on, allow notifications, set the hour a few
-     minutes ahead (or change the phone's clock), close the app and wait.
-     Tapping the reminder should open Hi-Lo Training. Then reboot and check it
-     is still scheduled.
+4. **Play on a real phone.** The release build has been run on an Android 15
+   emulator (2026-10-02): the table, Hi-Lo Training, live leaderboards, and
+   the Daily reminder — switched on, off and on, fired at its hour, tapped
+   (it opens Hi-Lo Training) and kept through a reboot. Still worth doing on
+   a real phone:
    - **Screen-on:** pick *Rarely* at *Relaxed* pace and don't touch the phone
      for a minute. The screen must stay on.
    - **Challenge link:** with the page live, send yourself a challenge, open
      the link in Chrome and tap *Open in the app*.
-   - **Android 12L or later:** the notifications plugin's docs mention old
-     reports of a crash with desugaring on 12L+. Launch the app once on such
-     a phone.
    - **Back gesture:** back out of a ranked Daily — it must ask first.
 
 ## Still open
@@ -202,5 +206,9 @@ count.
   showed on the emulator: bottom sheets running under the status bar, and a
   real ten-letter room code overflowing the header at 320 dp (tests used
   five letters). Check new screens with the screenshot run, not only tests.
+- **Release builds shrink code with R8.** Anything that serialises with
+  reflection (Gson in the notifications plugin) can work in debug and fail in
+  release. Try new native features in `flutter build apk --release` on a
+  device, not only in debug.
 - **Strategy data:** change the reference charts or index numbers only from
   a verified source, then re-run the reference test. Never from memory.
