@@ -32,6 +32,9 @@ class _BlackjackAppState extends State<BlackjackApp> {
       (challenge) => _open(HiLoTrainingScreen(initialChallenge: challenge)),
     );
     DailyReminder.onOpen = () => _open(const HiLoTrainingScreen());
+    // Install the navigation callback before inspecting a notification that
+    // may have launched the app, so a tap always lands in Hi-Lo Training.
+    unawaited(DailyReminder.start());
   }
 
   @override

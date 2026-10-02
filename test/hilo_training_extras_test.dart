@@ -314,6 +314,21 @@ void main() {
       await close(tester);
     });
 
+    testWidgets('a reminder that launched the app opens Hi-Lo Training',
+        (tester) async {
+      SharedPreferences.setMockInitialValues({'hilo_reminder_on': true});
+      fake.launched = true;
+      await tester.binding.setSurfaceSize(const Size(360, 740));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(const ProviderScope(child: BlackjackApp()));
+      await tester.pump(const Duration(milliseconds: 300));
+      await tester.pump(const Duration(milliseconds: 900));
+
+      expect(find.text('HI-LO TRAINING'), findsOneWidget);
+      expect(fake.inits, 1);
+      await close(tester);
+    });
+
     testWidgets('PASTE pulls the code out of a whole message', (tester) async {
       String? clipboard;
       tester.binding.defaultBinaryMessenger

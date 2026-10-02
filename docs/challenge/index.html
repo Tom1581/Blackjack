@@ -22,9 +22,7 @@
 <style>
   :root {
     --felt: #0b2116;
-    --felt-light: #1a4828;
     --gold: #d4af37;
-    --gold-light: #ffe680;
     --wood: #2c1208;
     --text: #f4f1e8;
     --muted: rgba(244, 241, 232, 0.65);
@@ -35,15 +33,26 @@
     min-height: 100vh;
     font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     color: var(--text);
-    background: radial-gradient(ellipse at 50% 20%, var(--felt-light), var(--felt) 60%, #050e08);
+    background: var(--felt);
     display: flex;
     align-items: center;
     justify-content: center;
     padding: 24px 16px;
+    overflow-x: hidden;
   }
-  main { width: 100%; max-width: 420px; min-width: 0; text-align: center; }
+  main {
+    width: calc(100vw - 32px);
+    max-width: 420px;
+    min-width: 0;
+    text-align: center;
+  }
   .suits { color: var(--gold); letter-spacing: 10px; font-size: 18px; opacity: 0.8; }
-  h1 { margin: 12px 0 4px; font-size: 26px; letter-spacing: 3px; color: var(--gold); }
+  h1 {
+    margin: 12px 0 4px;
+    font-size: clamp(21px, 8vw, 26px);
+    letter-spacing: 3px;
+    color: var(--gold);
+  }
   p { color: var(--muted); line-height: 1.5; margin: 8px 0; }
   .code {
     margin: 22px 0 6px;
@@ -72,7 +81,7 @@
     width: 100%;
     font-family: inherit;
   }
-  .primary { background: linear-gradient(var(--gold-light), var(--gold)); color: var(--wood); }
+  .primary { background: var(--gold); color: var(--wood); }
   .secondary { background: transparent; color: var(--gold); }
   .steps { margin-top: 22px; font-size: 14px; }
   .hidden { display: none; }
