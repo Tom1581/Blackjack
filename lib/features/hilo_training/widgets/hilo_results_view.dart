@@ -22,6 +22,9 @@ class HiLoResultsView extends StatelessWidget {
   /// Null where there is nothing to share (a duel).
   final void Function(BuildContext shareContext)? onShare;
 
+  /// Opens the drill the game's mistakes point to; null in a duel.
+  final ValueChanged<HiLoNextDrill>? onNextDrill;
+
   const HiLoResultsView({
     super.key,
     required this.game,
@@ -29,6 +32,7 @@ class HiLoResultsView extends StatelessWidget {
     required this.onPlayAgain,
     required this.onDone,
     this.onShare,
+    this.onNextDrill,
   });
 
   @override
@@ -72,6 +76,16 @@ class HiLoResultsView extends StatelessWidget {
               survival: spec.isSurvival,
             ),
           ),
+          if (onNextDrill case final open?) ...[
+            const SizedBox(height: 10),
+            _NextDrillButton(
+              drill: nextDrillFor(
+                game.players.first.answers,
+                survival: spec.isSurvival,
+              ),
+              onTap: open,
+            ),
+          ],
         ],
         const SizedBox(height: 18),
         if (share != null) ...[
@@ -197,7 +211,7 @@ class _SoloHeadline extends StatelessWidget {
               'Your friend scored ${points(target)}',
               style: TextStyle(
                 color: game.challengeWon
-                    ? AppColors.favorable
+                    ? AppColors.success
                     : Colors.white.withValues(alpha: 0.7),
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
@@ -420,10 +434,8 @@ class AnswerSquares extends StatelessWidget {
               height: 22,
               decoration: BoxDecoration(
                 color: answers[i].correct
-                    ? AppColors.favorable
-                    : (answers[i].timedOut
-                        ? Colors.white24
-                        : AppColors.unfavorable),
+                    ? AppColors.success
+                    : (answers[i].timedOut ? Colors.white24 : AppColors.error),
                 borderRadius: BorderRadius.circular(5),
               ),
               child: answers[i].points.combo > 1
@@ -477,7 +489,7 @@ class _RewardCard extends StatelessWidget {
                       const Text(
                         'RANK UP!',
                         style: TextStyle(
-                          color: AppColors.favorable,
+                          color: AppColors.success,
                           fontSize: 11,
                           fontWeight: FontWeight.w900,
                           letterSpacing: 1.5,
@@ -617,6 +629,40 @@ class _Ribbon extends StatelessWidget {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// "Next drill: Speed Count" — the one drill this game's mistakes point to.
+class _NextDrillButton extends StatelessWidget {
+  final HiLoNextDrill drill;
+  final ValueChanged<HiLoNextDrill> onTap;
+
+  const _NextDrillButton({required this.drill, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        HiLoButton(
+          key: const ValueKey('hilo-next-drill'),
+          label: 'NEXT DRILL: ${drill.label.toUpperCase()}',
+          icon: Icons.fitness_center,
+          outlined: true,
+          accent: AppColors.drill,
+          onPressed: () => onTap(drill),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          drill.why,
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.5),
+            fontSize: 11.5,
+          ),
+        ),
+      ],
     );
   }
 }

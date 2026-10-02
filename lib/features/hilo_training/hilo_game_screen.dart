@@ -9,7 +9,11 @@ import '../../core/audio/sound_service.dart';
 import '../../theme/app_theme.dart';
 import '../online/widgets/felt_background.dart';
 import '../table/widgets/discard_tray.dart';
+import '../drill/daily_count_drill_screen.dart';
+import '../training/speed_count_screen.dart';
 import '../training/training_widgets.dart';
+import '../training/true_count_drill_screen.dart';
+import '../profile/player_identity.dart';
 import 'daily_reminder.dart';
 import 'hilo_boards_service.dart';
 import 'hilo_game.dart';
@@ -434,12 +438,33 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
     setState(() => _reward = reward);
   }
 
+  /// The drill the results recommend, opened over the results.
+  void _openNextDrill(HiLoNextDrill drill) {
+    HapticFeedback.lightImpact();
+    final Widget screen = switch (drill) {
+      HiLoNextDrill.speedCount => const SpeedCountScreen(),
+      HiLoNextDrill.tagDrill => const DailyCountDrillScreen(),
+      HiLoNextDrill.trueCount => const TrueCountDrillScreen(),
+      HiLoNextDrill.relaxedPractice => HiLoGameScreen(
+          spec: HiLoGameSpec.practice(const HiLoTrainingConfig(
+            players: 2,
+            pace: HiLoPace.relaxed,
+            frequency: HiLoQuizFrequency.often,
+            questions: 10,
+          )),
+        ),
+      HiLoNextDrill.survival => HiLoGameScreen(spec: HiLoGameSpec.survival()),
+    };
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
   Future<void> _share(BuildContext shareContext) async {
     final box = shareContext.findRenderObject() as RenderBox?;
     final origin =
         box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+    final name = await PlayerIdentity.load();
     await Share.share(
-      shareText(_game),
+      shareText(_game, playerName: name),
       subject: 'Beat my Hi-Lo count',
       sharePositionOrigin: origin,
     );
@@ -462,46 +487,54 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
     return Scaffold(
       backgroundColor: AppColors.bg,
       body: FeltBackground(
-        child: SafeArea(
-          child: Stack(
-            children: [
-              Column(
+        child: Stack(
+          children: [
+            SafeArea(
+              child: Stack(
                 children: [
-                  _header(),
-                  _hud(),
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
-                      // Screen readers skip the dimmed table while a
-                      // question is up.
-                      child: ExcludeSemantics(
-                        excluding: _quiz != _Quiz.none,
-                        child: HiLoTableView(session: _game.session),
+                  Column(
+                    children: [
+                      _header(),
+                      _hud(),
+                      Expanded(
+                        child: Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 6, 16, 8),
+                          // Screen readers skip the dimmed table while a
+                          // question is up.
+                          child: ExcludeSemantics(
+                            excluding: _quiz != _Quiz.none,
+                            child: HiLoTableView(session: _game.session),
+                          ),
+                        ),
+                      ),
+                      _controls(),
+                    ],
+                  ),
+                  // On the open felt between the dealer and the seats, so it
+                  // never hides a card.
+                  if (_bannerText() case final text?)
+                    Positioned.fill(
+                      child: IgnorePointer(
+                        child: Align(
+                          alignment: const Alignment(0, -0.02),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 24),
+                            child: _Banner(text: text),
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                  _controls(),
                 ],
               ),
-              // On the open felt between the dealer and the seats, so it
-              // never hides a card.
-              if (_bannerText() case final text?)
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: Align(
-                      alignment: const Alignment(0, -0.02),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 24),
-                        child: _Banner(text: text),
-                      ),
-                    ),
-                  ),
-                ),
-              if (_quiz != _Quiz.none)
-                Positioned.fill(
-                  child: Container(
-                    color: Colors.black.withValues(alpha: 0.72),
-                    alignment: Alignment.center,
+            ),
+            // The dim reaches under the status bar too, so the whole screen
+            // steps back behind the question.
+            if (_quiz != _Quiz.none)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.72),
+                  alignment: Alignment.center,
+                  child: SafeArea(
                     child: SingleChildScrollView(
                       padding: const EdgeInsets.all(18),
                       child: KeyedSubtree(
@@ -511,8 +544,8 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
                     ),
                   ),
                 ),
-            ],
-          ),
+              ),
+          ],
         ),
       ),
     );
@@ -694,6 +727,12 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
     );
   }
 
+  /// Tighter than the theme's padding so both labels stay whole on a 320 dp
+  /// phone.
+  static final _controlStyle = OutlinedButton.styleFrom(
+    padding: const EdgeInsets.symmetric(horizontal: 12),
+  );
+
   Widget _controls() {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
@@ -704,11 +743,12 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
               height: 46,
               child: OutlinedButton.icon(
                 onPressed: _togglePause,
+                style: _controlStyle,
                 icon: Icon(
                   _paused ? Icons.play_arrow_rounded : Icons.pause_rounded,
                   size: 20,
                 ),
-                label: Text(_paused ? 'RESUME' : 'PAUSE'),
+                label: _ControlLabel(_paused ? 'RESUME' : 'PAUSE'),
               ),
             ),
           ),
@@ -718,8 +758,9 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
               height: 46,
               child: OutlinedButton.icon(
                 onPressed: _requestLeave,
+                style: _controlStyle,
                 icon: const Icon(Icons.flag_outlined, size: 20),
-                label: const Text('FINISH'),
+                label: const _ControlLabel('FINISH'),
               ),
             ),
           ),
@@ -749,6 +790,7 @@ class _HiLoGameScreenState extends State<HiLoGameScreen>
             onPlayAgain: _playAgain,
             onDone: () => Navigator.of(context).pop(),
             onShare: game.spec.isDuel ? null : _share,
+            onNextDrill: game.spec.isDuel ? null : _openNextDrill,
           ),
         ),
         if (celebrate) const Positioned.fill(child: Confetti()),
@@ -780,7 +822,7 @@ class _ScoreLine extends StatelessWidget {
             player.score > best! ? 'NEW BEST' : 'BEST ${points(best!)}',
             style: TextStyle(
               color: player.score > best!
-                  ? AppColors.favorable
+                  ? AppColors.success
                   : Colors.white.withValues(alpha: 0.5),
               fontSize: 11,
               fontWeight: FontWeight.w900,
@@ -792,7 +834,7 @@ class _ScoreLine extends StatelessWidget {
             'TO BEAT ${points(target)}',
             style: TextStyle(
               color: player.score > target
-                  ? AppColors.favorable
+                  ? AppColors.success
                   : Colors.white.withValues(alpha: 0.6),
               fontSize: 11,
               fontWeight: FontWeight.w900,
@@ -918,4 +960,16 @@ class _Banner extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A control button's label: one line, shrunk rather than broken mid-word.
+class _ControlLabel extends StatelessWidget {
+  final String text;
+  const _ControlLabel(this.text);
+
+  @override
+  Widget build(BuildContext context) => FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Text(text, maxLines: 1, softWrap: false),
+      );
 }

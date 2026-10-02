@@ -109,9 +109,10 @@ Play Console → **Store presence → Main store listing**. Paste the title, sho
 description, full description and release notes from
 `store-assets/google-play/listing-text.md` (all verified within Play's limits).
 
-**Screenshots are stale** — they predate online play and the coach. The three
-worth shooting: the open-tables lobby, a five-seat table mid-round, and the
-coach correcting a misplay.
+**Screenshots:** upload the seven in
+`store-assets/google-play/screenshots/hilo-1080x1920/` (real captures,
+1080 x 1920, in upload order; captions in that folder's README) in place of
+the old four. Keep the feature graphic.
 
 ### A6. Update the Data Safety form and privacy policy  ← compliance
 
@@ -356,6 +357,24 @@ to 1–5 seats and, at a random card, asks for the running count.
 **Two switches only you can flip:** GitHub Pages for `/docs`, to make
 challenge links tappable, and the `HILO_CHALLENGE_PAGE` build define. Steps
 are in `PICK_UP_HERE.md`.
+
+### 2026-10-02 — UX and presentation pass, version 1.5.0+14
+
+A brief from Codex: improve UX and presentation only — no change to rules,
+strategy math, the Supabase schema, the online protocol, ads, rewarded flows
+or routes. Summary in `PICK_UP_HERE.md` ("What 1.5 changes").
+
+| Piece | Where | How it was verified |
+|---|---|---|
+| Brand lockup, wordmark never wraps | `lobby/widgets/brand_lockup.dart` | The wordmark is one line at 320/360/390/412 dp (it broke mid-word at 320 and 360 before) |
+| Today's next step | `lobby/next_step.dart`, `lobby/widgets/home_cards.dart` | Each rule in priority order; above the fold at all four widths; the card opens the right drill |
+| One name and avatar | `profile/player_identity.dart` | Saved where online tables read it; same colour for the same name; shared challenges carry it |
+| Practice Setup | `lobby/practice_setup.dart` | Clean layout at four widths, top to bottom; `test/lobby_settings_test.dart` |
+| Session report, next drill | `lobby/session_report.dart`, `lobby/widgets/session_report_sheet.dart`, `hilo_text.dart` | Biggest mistake and next drill rules; played table session → report → drill |
+| Next unlock | `hilo_training/hilo_goals.dart` | Progress per goal; the button goes where the goal is earned |
+| Five-seat online table | `online/online_table_screen.dart` | `test/online_full_table_test.dart`: all five seats above the controls on 411 x 731 |
+| Layout checks | `test/support/layout_checks.dart` | Mid-word breaks, clipped text and overlapping controls; a self-test proves each check fires |
+| Store screenshots | `integration_test/store_screenshots_test.dart`, `tool/capture_store_screenshots.py` | Captured on a 1080 x 1920 emulator from the real app |
 
 ## The thing none of this fixes
 

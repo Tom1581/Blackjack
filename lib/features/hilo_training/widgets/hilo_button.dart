@@ -10,12 +10,17 @@ class HiLoButton extends StatelessWidget {
   final VoidCallback? onPressed;
   final bool outlined;
 
+  /// The outline and label colour of an [outlined] button; the theme's
+  /// otherwise.
+  final Color? accent;
+
   const HiLoButton({
     super.key,
     required this.label,
     this.icon,
     this.onPressed,
     this.outlined = false,
+    this.accent,
   });
 
   @override
@@ -42,7 +47,14 @@ class HiLoButton extends StatelessWidget {
       child: outlined
           ? OutlinedButton(
               onPressed: onPressed,
-              style: OutlinedButton.styleFrom(shape: shape, padding: padding),
+              style: OutlinedButton.styleFrom(
+                shape: shape,
+                padding: padding,
+                foregroundColor: accent,
+                side: accent == null
+                    ? null
+                    : BorderSide(color: accent!.withValues(alpha: 0.6)),
+              ),
               child: child,
             )
           : FilledButton(

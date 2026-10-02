@@ -620,24 +620,30 @@ class _StrategyFeedbackBar extends ConsumerWidget {
               width: double.infinity,
               margin: const EdgeInsets.fromLTRB(12, 0, 12, 6),
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              // Red marks a mistake across the app; the words stay white so
+              // they read on the felt.
               decoration: BoxDecoration(
-                color: AppColors.gold.withValues(alpha: 0.14),
+                color: Color.alphaBlend(
+                  AppColors.error.withValues(alpha: 0.14),
+                  Colors.black.withValues(alpha: 0.45),
+                ),
                 borderRadius: BorderRadius.circular(10),
                 border:
-                    Border.all(color: AppColors.gold.withValues(alpha: 0.5)),
+                    Border.all(color: AppColors.error.withValues(alpha: 0.6)),
               ),
               child: Row(
                 children: [
                   const Icon(Icons.school_outlined,
-                      size: 16, color: AppColors.gold),
+                      size: 16, color: AppColors.error),
                   const SizedBox(width: 9),
                   Expanded(
                     child: Text(
                       feedback.message,
+                      key: const ValueKey('coach-feedback'),
                       maxLines: 3,
                       overflow: TextOverflow.ellipsis,
                       style: const TextStyle(
-                        color: AppColors.gold,
+                        color: Colors.white,
                         fontSize: 12,
                         height: 1.3,
                         fontWeight: FontWeight.w700,

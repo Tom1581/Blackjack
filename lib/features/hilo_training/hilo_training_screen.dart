@@ -7,11 +7,13 @@ import 'package:share_plus/share_plus.dart';
 
 import '../../theme/app_theme.dart';
 import '../training/training_widgets.dart';
+import '../profile/player_identity.dart';
 import 'daily_reminder.dart';
 import 'hilo_boards_service.dart';
 import 'widgets/hilo_button.dart';
 import 'hilo_game.dart';
 import 'hilo_game_screen.dart';
+import 'hilo_goals.dart';
 import 'hilo_scoring.dart';
 import 'hilo_setup_screens.dart';
 import 'hilo_text.dart';
@@ -46,6 +48,7 @@ class HiLoTrainingScreen extends StatefulWidget {
 
 class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
   HiLoProfile? _profile;
+  String _name = '';
   HiLoDailyBoard? _dailyBoard;
   int? _dailyBoardDay;
   Timer? _minuteTimer;
@@ -76,7 +79,13 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
 
   Future<void> _reload() async {
     final profile = await HiLoTrainingProgress.loadProfile();
-    if (mounted) setState(() => _profile = profile);
+    final name = await PlayerIdentity.load();
+    if (mounted) {
+      setState(() {
+        _profile = profile;
+        _name = name;
+      });
+    }
     unawaited(_loadDailyBoard());
     // Every visit moves the one pending reminder to the next unplayed shoe.
     unawaited(DailyReminder.refresh());
@@ -106,6 +115,24 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
     _open(HiLoGameScreen(spec: HiLoGameSpec.daily(day, ranked: ranked)));
   }
 
+  void _playSurvival() => _open(HiLoGameScreen(spec: HiLoGameSpec.survival()));
+
+  /// Where a next-unlock button goes.
+  void _goal(HiLoGoalAction action) {
+    switch (action) {
+      case HiLoGoalAction.practice:
+        _open(const HiLoPracticeSetupScreen());
+      case HiLoGoalAction.survival:
+        _playSurvival();
+      case HiLoGoalAction.daily:
+        _playDaily();
+      case HiLoGoalAction.duel:
+        _open(const HiLoDuelSetupScreen());
+      case HiLoGoalAction.enterCode:
+        _enterCode();
+    }
+  }
+
   void _openDailyBoard() {
     showHiLoDailyBoardSheet(context, day: _today);
   }
@@ -124,8 +151,9 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
     final box = shareContext.findRenderObject() as RenderBox?;
     final origin =
         box == null ? null : box.localToGlobal(Offset.zero) & box.size;
+    final name = await PlayerIdentity.load();
     await Share.share(
-      dailyShareText(_today, score),
+      dailyShareText(_today, score, playerName: name),
       subject: 'Beat my Hi-Lo Daily',
       sharePositionOrigin: origin,
     );
@@ -150,7 +178,7 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
                   const _NewHereCard(),
                   const SizedBox(height: 14),
                 ],
-                _RankCard(profile: profile),
+                _RankCard(profile: profile, name: _name),
                 const SizedBox(height: 14),
                 _DailyCard(
                   profile: profile,
@@ -175,15 +203,14 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
                       ? 'BEST ${points(profile.survivalBest)} · '
                           'LEVEL ${profile.survivalBestLevel}'
                       : 'THIS WEEK',
-                  onTap: () =>
-                      _open(HiLoGameScreen(spec: HiLoGameSpec.survival())),
+                  onTap: _playSurvival,
                   onBoard: _openSurvivalBoard,
                   boardTooltip: 'Weekly Survival leaderboard',
                 ),
                 _ModeTile(
                   key: const ValueKey('hilo-mode-duel'),
                   icon: Icons.people_alt,
-                  iconColor: const Color(0xFF5AB0FF),
+                  iconColor: AppColors.social,
                   title: 'Duel',
                   blurb: 'Two players, one phone. Same cards, secret '
                       'answers, one winner.',
@@ -195,7 +222,7 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
                 _ModeTile(
                   key: const ValueKey('hilo-mode-practice'),
                   icon: Icons.tune,
-                  iconColor: AppColors.favorable,
+                  iconColor: AppColors.drill,
                   title: 'Practice',
                   blurb: 'Choose the table and the pace. No clock on the '
                       'answers.',
@@ -207,9 +234,18 @@ class _HiLoTrainingScreenState extends State<HiLoTrainingScreen> {
                 const SizedBox(height: 4),
                 _CodeRow(onTap: _enterCode),
                 const SizedBox(height: 18),
-                _AchievementsStrip(profile: profile),
+                _AchievementsStrip(
+                  profile: profile,
+                  today: _today,
+                  onGoal: _goal,
+                ),
                 const SizedBox(height: 18),
-                _RecordsCard(profile: profile, today: _today),
+                _RecordsCard(
+                  profile: profile,
+                  today: _today,
+                  onSurvival: _playSurvival,
+                  onDaily: _playDaily,
+                ),
                 const SizedBox(height: 18),
                 const _ScoringCard(),
               ],
@@ -367,9 +403,9 @@ class _NewHereCard extends StatelessWidget {
       key: const ValueKey('hilo-new-here'),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: AppColors.favorable.withValues(alpha: 0.07),
+        color: AppColors.success.withValues(alpha: 0.07),
         borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.favorable.withValues(alpha: 0.4)),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.4)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -377,7 +413,7 @@ class _NewHereCard extends StatelessWidget {
           const Text(
             'NEW TO COUNTING?',
             style: TextStyle(
-              color: AppColors.favorable,
+              color: AppColors.success,
               fontSize: 11,
               fontWeight: FontWeight.w900,
               letterSpacing: 2,
@@ -406,7 +442,10 @@ class _NewHereCard extends StatelessWidget {
 class _RankCard extends StatelessWidget {
   final HiLoProfile profile;
 
-  const _RankCard({required this.profile});
+  /// The player's name, '' if they have not set one.
+  final String name;
+
+  const _RankCard({required this.profile, this.name = ''});
 
   @override
   Widget build(BuildContext context) {
@@ -433,7 +472,10 @@ class _RankCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'YOUR RANK',
+                  name.isEmpty ? 'YOUR RANK' : '${name.toUpperCase()} · RANK',
+                  key: const ValueKey('hilo-rank-owner'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: TextStyle(
                     color: Colors.white.withValues(alpha: 0.5),
                     fontSize: 9.5,
@@ -806,8 +848,10 @@ class _CodeRow extends StatelessWidget {
       onPressed: onTap,
       style: OutlinedButton.styleFrom(
         minimumSize: const Size.fromHeight(48),
+        // Violet: playing with friends.
+        foregroundColor: AppColors.social,
         backgroundColor: Colors.black.withValues(alpha: 0.2),
-        side: BorderSide(color: AppColors.gold.withValues(alpha: 0.45)),
+        side: BorderSide(color: AppColors.social.withValues(alpha: 0.55)),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       ),
       child: const Row(
@@ -834,21 +878,29 @@ class _CodeRow extends StatelessWidget {
 
 class _AchievementsStrip extends StatelessWidget {
   final HiLoProfile profile;
+  final int today;
+  final ValueChanged<HiLoGoalAction> onGoal;
 
-  const _AchievementsStrip({required this.profile});
+  const _AchievementsStrip({
+    required this.profile,
+    required this.today,
+    required this.onGoal,
+  });
 
   @override
   Widget build(BuildContext context) {
     final got = profile.achievements;
-    return InkWell(
-      borderRadius: BorderRadius.circular(12),
-      onTap: () => showAchievementsSheet(context, got),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
+    final goal = nextGoal(profile, today: today);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        InkWell(
+          key: const ValueKey('hilo-achievements-all'),
+          borderRadius: BorderRadius.circular(8),
+          onTap: () => showAchievementsSheet(context, got),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Row(
               children: [
                 Expanded(
                   child: Text(
@@ -875,21 +927,144 @@ class _AchievementsStrip extends StatelessWidget {
                     size: 16, color: Colors.white.withValues(alpha: 0.55)),
               ],
             ),
+          ),
+        ),
+        const SizedBox(height: 6),
+        if (goal != null)
+          _NextGoalCard(goal: goal, onTap: () => onGoal(goal.action))
+        else
+          const Text(
+            'Every achievement unlocked. That is game speed.',
+            key: ValueKey('hilo-achievements-done'),
+            style: TextStyle(
+              color: AppColors.success,
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 7,
+          runSpacing: 7,
+          children: [
+            for (final a in HiLoAchievement.values)
+              AchievementBadge(
+                achievement: a,
+                unlocked: got.contains(a),
+                size: 30,
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+/// The one achievement to chase next: what it takes, how far along, and a
+/// button straight to the mode that earns it.
+class _NextGoalCard extends StatelessWidget {
+  final HiLoGoal goal;
+  final VoidCallback onTap;
+
+  const _NextGoalCard({required this.goal, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final a = goal.achievement;
+    final label = goal.progressLabel;
+    return Container(
+      key: const ValueKey('hilo-next-goal'),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      decoration: BoxDecoration(
+        color: AppColors.gold.withValues(alpha: 0.07),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppColors.gold.withValues(alpha: 0.45)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              AchievementBadge(achievement: a, unlocked: true, size: 38),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'NEXT UNLOCK',
+                      style: TextStyle(
+                        color: AppColors.gold.withValues(alpha: 0.8),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 1.6,
+                      ),
+                    ),
+                    Text(
+                      a.title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                    Text(
+                      a.description,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.6),
+                        fontSize: 12,
+                        height: 1.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          if (label != null) ...[
             const SizedBox(height: 10),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+            Row(
               children: [
-                for (final a in HiLoAchievement.values)
-                  AchievementBadge(
-                    achievement: a,
-                    unlocked: got.contains(a),
-                    size: 34,
+                Expanded(
+                  child: TweenAnimationBuilder<double>(
+                    tween: Tween(begin: 0, end: goal.progress),
+                    duration: const Duration(milliseconds: 700),
+                    curve: Curves.easeOutCubic,
+                    builder: (_, v, __) => HiLoProgressBar(progress: v),
                   ),
+                ),
+                const SizedBox(width: 10),
+                Text(
+                  label,
+                  key: const ValueKey('hilo-next-goal-progress'),
+                  style: const TextStyle(
+                    color: AppColors.gold,
+                    fontSize: 12,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
               ],
             ),
           ],
-        ),
+          const SizedBox(height: 6),
+          Align(
+            alignment: Alignment.centerRight,
+            child: TextButton.icon(
+              key: const ValueKey('hilo-next-goal-go'),
+              onPressed: onTap,
+              icon: const Icon(Icons.arrow_forward, size: 16),
+              label: Text(goal.action.label),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.gold,
+                textStyle: const TextStyle(
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 1,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -898,8 +1073,15 @@ class _AchievementsStrip extends StatelessWidget {
 class _RecordsCard extends StatelessWidget {
   final HiLoProfile profile;
   final int today;
+  final VoidCallback onSurvival;
+  final VoidCallback onDaily;
 
-  const _RecordsCard({required this.profile, required this.today});
+  const _RecordsCard({
+    required this.profile,
+    required this.today,
+    required this.onSurvival,
+    required this.onDaily,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -939,10 +1121,11 @@ class _RecordsCard extends StatelessWidget {
           Text('SURVIVAL — TOP RUNS', style: header),
           const SizedBox(height: 6),
           if (profile.survivalTop.isEmpty)
-            Text(
-              'No runs yet. How long can you keep the count?',
-              style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.5), fontSize: 12),
+            _EmptyRecord(
+              key: const ValueKey('hilo-records-survival-empty'),
+              text: 'No runs yet. How long can you keep the count?',
+              action: 'START A RUN',
+              onTap: onSurvival,
             )
           else
             for (var i = 0; i < profile.survivalTop.length; i++)
@@ -975,26 +1158,34 @@ class _RecordsCard extends StatelessWidget {
           const SizedBox(height: 14),
           Text('DAILY — THIS WEEK', style: header),
           const SizedBox(height: 8),
-          SizedBox(
-            height: 74,
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                for (var i = 0; i < week.length; i++)
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      child: _DayBar(
-                        label: '#${week[i]}',
-                        score: weekScores[i],
-                        fraction: (weekScores[i] ?? 0) / peak,
-                        today: week[i] == today,
+          if (weekScores.every((s) => s == null))
+            _EmptyRecord(
+              key: const ValueKey('hilo-records-daily-empty'),
+              text: 'Your first Daily Challenge starts the chart.',
+              action: profile.playedDaily(today) ? null : 'PLAY TODAY\'S DAILY',
+              onTap: onDaily,
+            )
+          else
+            SizedBox(
+              height: 74,
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  for (var i = 0; i < week.length; i++)
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 3),
+                        child: _DayBar(
+                          label: '#${week[i]}',
+                          score: weekScores[i],
+                          fraction: (weekScores[i] ?? 0) / peak,
+                          today: week[i] == today,
+                        ),
                       ),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
-          ),
           if (profile.commonSlip case final slip?) ...[
             const SizedBox(height: 14),
             Text('YOUR MOST COMMON MISS', style: header),
@@ -1003,7 +1194,7 @@ class _RecordsCard extends StatelessWidget {
               '${slipName(slip)} · ${profile.slips[slip]}×',
               key: const ValueKey('hilo-common-slip'),
               style: const TextStyle(
-                color: AppColors.unfavorable,
+                color: AppColors.error,
                 fontSize: 13,
                 fontWeight: FontWeight.w800,
               ),
@@ -1029,6 +1220,58 @@ class _RecordsCard extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+/// An empty record, said plainly, with the way to fill it.
+class _EmptyRecord extends StatelessWidget {
+  final String text;
+  final String? action;
+  final VoidCallback onTap;
+
+  const _EmptyRecord({
+    super.key,
+    required this.text,
+    required this.action,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final label = action;
+    // Stacked rather than side by side, so a large system font never pushes
+    // the button off the card.
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          text,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.55),
+            fontSize: 12,
+            height: 1.35,
+          ),
+        ),
+        if (label != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton(
+            onPressed: onTap,
+            style: OutlinedButton.styleFrom(
+              foregroundColor: AppColors.gold,
+              side: BorderSide(color: AppColors.gold.withValues(alpha: 0.5)),
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              minimumSize: const Size(0, 36),
+              textStyle: const TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 0.8,
+              ),
+            ),
+            child: FittedBox(fit: BoxFit.scaleDown, child: Text(label)),
+          ),
+        ],
+      ],
     );
   }
 }

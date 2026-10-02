@@ -1,6 +1,6 @@
-// The lobby's table settings on a small phone: every row, including the ones
-// that only appear once another is switched on, lays out without overflow and
-// persists.
+// The practice table's settings on a small phone: every row of the Practice
+// Setup sheet, including the ones that only appear once another is switched
+// on, lays out without overflow and persists.
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -42,14 +42,35 @@ void main() {
     return container;
   }
 
-  Future<void> scrollTo(WidgetTester tester, Finder target) async {
-    await tester.scrollUntilVisible(target, 250,
+  /// Open Practice Setup from its card at the bottom of the home screen.
+  Future<void> openSetup(WidgetTester tester) async {
+    final card = find.byKey(const ValueKey('home-practice-setup'));
+    await tester.scrollUntilVisible(card, 250,
         scrollable: find.byType(Scrollable).first);
+    await tester.pump(const Duration(milliseconds: 200));
+    await tester.tap(card);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('PRACTICE SETUP'), findsWidgets);
+  }
+
+  /// Scroll the Practice Setup sheet until [target] shows — [up] for a row
+  /// above the current position.
+  Future<void> scrollTo(WidgetTester tester, Finder target,
+      {bool up = false}) async {
+    await tester.scrollUntilVisible(target, up ? -200 : 200,
+        scrollable: find
+            .descendant(
+              of: find.byKey(const ValueKey('practice-setup-sheet')),
+              matching: find.byType(Scrollable),
+            )
+            .first);
     await tester.pump(const Duration(milliseconds: 200));
   }
 
   testWidgets('every settings row fits a 360dp phone', (tester) async {
     final c = await pumpLobby(tester);
+    await openSetup(tester);
 
     await scrollTo(tester, find.text('Index plays (Illustrious 18)'));
     expect(find.text('Bet spread coach'), findsOneWidget);
@@ -57,7 +78,7 @@ void main() {
 
     // Turn the count HUD off: the count-check row appears.
     await scrollTo(tester, find.text('Show Hi-Lo Count HUD'));
-    await tester.tap(find.byType(Switch).first);
+    await tester.tap(find.byKey(const ValueKey('setup-show-count')));
     await tester.pump(const Duration(milliseconds: 200));
     expect(c.read(showCountProvider), isFalse);
     expect(find.text('Count check quiz'), findsOneWidget);
@@ -66,10 +87,12 @@ void main() {
     // Turn the bet coach on: the unit chips appear, and fit.
     await scrollTo(tester, find.text('Bet spread coach'));
     final coachSwitch = find.descendant(
-      of: find.ancestor(
-        of: find.text('Bet spread coach'),
-        matching: find.byType(Row),
-      ).first,
+      of: find
+          .ancestor(
+            of: find.text('Bet spread coach'),
+            matching: find.byType(Row),
+          )
+          .first,
       matching: find.byType(Switch),
     );
     await tester.tap(coachSwitch);
@@ -84,12 +107,30 @@ void main() {
     expect(c.read(betUnitProvider), 10);
     expect(TablePrefs.betUnit, 10);
 
-    // The shoe row now offers eight decks.
-    await scrollTo(tester, find.text('8 D'));
-    await tester.tap(find.text('8 D'));
+    // The shoe row offers eight decks, spelled out.
+    await scrollTo(tester, find.text('8 decks'), up: true);
+    await tester.tap(find.text('8 decks'));
     await tester.pump(const Duration(milliseconds: 200));
     expect(c.read(shoeModeProvider), ShoeMode.eightDeck);
+    expect(find.text('Continuous shuffle'), findsOneWidget,
+        reason: 'no more "C.S."');
     expect(tester.takeException(), isNull);
+
+    // The explainer sits with the count settings it explains.
+    await scrollTo(tester, find.text('How Hi-Lo counting works'));
+    await tester.tap(find.text('How Hi-Lo counting works'));
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('HOW HI-LO COUNTING WORKS'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Closing the sheet, the home card shows the new table.
+    Navigator.of(
+            tester.element(find.byKey(const ValueKey('practice-setup-sheet'))))
+        .pop();
+    await tester.pump(const Duration(milliseconds: 500));
+    expect(find.text('8 decks · H17 · DAS · 3:2'), findsOneWidget);
+    expect(find.text('Count hidden'), findsOneWidget);
+    expect(find.text('Bet coach'), findsOneWidget);
 
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pump(const Duration(seconds: 1));
@@ -97,6 +138,7 @@ void main() {
 
   testWidgets('the rule picker lists the surrender tables', (tester) async {
     await pumpLobby(tester);
+    await openSetup(tester);
     await scrollTo(tester, find.text('Table rules'));
     await tester.tap(find.text('Table rules'));
     await tester.pump(const Duration(milliseconds: 500));

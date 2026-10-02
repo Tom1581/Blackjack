@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -9,6 +10,7 @@ import '../../core/growth/share_messages.dart';
 import '../../core/models/game_state.dart';
 import '../../core/models/hand_model.dart';
 import '../../theme/app_theme.dart';
+import '../profile/player_identity.dart';
 import '../table/widgets/card_widget.dart';
 import '../table/widgets/chip_stack.dart';
 import 'online_controller.dart';
@@ -89,8 +91,8 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
       if (table.phase == OnlinePhase.results) {
         final me = c.mySeat;
         if (me != null && me.inRound) {
-          final blackjack = me.hands
-              .any((h) => h.result == GameResult.blackjack);
+          final blackjack =
+              me.hands.any((h) => h.result == GameResult.blackjack);
           if (blackjack) {
             SoundService.play(Sfx.blackjack);
           } else if (me.netLastRound > 0) {
@@ -129,9 +131,8 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
 
   Future<void> _shareRoom(BuildContext shareContext) async {
     final box = shareContext.findRenderObject() as RenderBox?;
-    final origin = box == null
-        ? null
-        : box.localToGlobal(Offset.zero) & box.size;
+    final origin =
+        box == null ? null : box.localToGlobal(Offset.zero) & box.size;
     await Share.share(
       GrowthShareMessages.roomInvite(c.roomCode),
       subject: 'Join my Hi-Lo Blackjack table',
@@ -277,11 +278,16 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
             behavior: HitTestBehavior.opaque,
             child: const Padding(
               padding: EdgeInsets.only(right: 6),
-              child: Icon(Icons.arrow_back_ios, color: AppColors.gold, size: 20),
+              child:
+                  Icon(Icons.arrow_back_ios, color: AppColors.gold, size: 20),
             ),
           ),
-          _roomPill(),
-          const Spacer(),
+          // A ten-letter code shrinks to fit a narrow phone rather than
+          // pushing the player count off the edge.
+          Expanded(
+            child: Align(alignment: Alignment.centerLeft, child: _roomPill()),
+          ),
+          const SizedBox(width: 8),
           _statusDot(),
           const SizedBox(width: 6),
           Icon(Icons.groups,
@@ -325,13 +331,19 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
                   letterSpacing: 1,
                 ),
               ),
-              Text(
-                c.roomCode,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 2.5,
+              Flexible(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    c.roomCode,
+                    maxLines: 1,
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 17,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 2.5,
+                    ),
+                  ),
                 ),
               ),
               const SizedBox(width: 6),
@@ -391,35 +403,49 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
   // ─── Table body ─────────────────────────────────────────────────────────
 
   Widget _tableBody(OnlineTableState table) {
+    // Three seats or more sit three to a row in slimmer pods, so a full
+    // table of five fits on a phone without scrolling past the dealer.
+    final crowded = table.seats.length >= 3;
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
       child: Column(
         children: [
-          _dealerZone(table),
-          const SizedBox(height: 10),
+          _dealerZone(table, compact: crowded),
+          SizedBox(height: crowded ? 8 : 10),
           _ShoeStrip(table: table),
-          const SizedBox(height: 12),
+          SizedBox(height: crowded ? 8 : 12),
           const _OrnamentDivider(),
-          const SizedBox(height: 14),
-          Wrap(
-            alignment: WrapAlignment.center,
-            spacing: 10,
-            runSpacing: 12,
-            children: [
-              for (var i = 0; i < table.seats.length; i++)
-                _SeatPod(
-                  seat: table.seats[i],
-                  phase: table.phase,
-                  isActive: table.phase == OnlinePhase.playerTurns &&
-                      table.activeSeat == i,
-                  isMe: table.seats[i].id == c.clientId,
-                  canKick: c.isHost &&
-                      table.seats[i].id != c.clientId &&
-                      (table.phase == OnlinePhase.betting ||
-                          table.phase == OnlinePhase.results),
-                  onKick: () => _confirmKick(table.seats[i]),
-                ),
-            ],
+          SizedBox(height: crowded ? 10 : 14),
+          LayoutBuilder(
+            builder: (context, box) {
+              const spacing = 8.0;
+              final third = ((box.maxWidth - 2 * spacing) / 3).floorToDouble();
+              final compact = crowded &&
+                  third >= _SeatPod.compactMinWidth &&
+                  third < _SeatPod.fullWidth;
+              return Wrap(
+                alignment: WrapAlignment.center,
+                spacing: compact ? spacing : 10,
+                runSpacing: compact ? 10 : 12,
+                children: [
+                  for (var i = 0; i < table.seats.length; i++)
+                    _SeatPod(
+                      seat: table.seats[i],
+                      phase: table.phase,
+                      width: compact ? third : _SeatPod.fullWidth,
+                      compact: compact,
+                      isActive: table.phase == OnlinePhase.playerTurns &&
+                          table.activeSeat == i,
+                      isMe: table.seats[i].id == c.clientId,
+                      canKick: c.isHost &&
+                          table.seats[i].id != c.clientId &&
+                          (table.phase == OnlinePhase.betting ||
+                              table.phase == OnlinePhase.results),
+                      onKick: () => _confirmKick(table.seats[i]),
+                    ),
+                ],
+              );
+            },
           ),
           const SizedBox(height: 8),
         ],
@@ -455,7 +481,8 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
     if (ok == true) c.kick(seat.id);
   }
 
-  Widget _dealerZone(OnlineTableState table) {
+  Widget _dealerZone(OnlineTableState table, {bool compact = false}) {
+    final cardWidth = compact ? 52.0 : 60.0;
     final dealer = table.dealer;
     final revealed = table.phase == OnlinePhase.results;
     final hasCards = dealer.cards.isNotEmpty;
@@ -473,12 +500,12 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
         ),
         const SizedBox(height: 8),
         if (!hasCards)
-          const Row(
+          Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
-              CardWidget(card: null, width: 60, animate: false),
-              SizedBox(width: 6),
-              CardWidget(card: null, width: 60, animate: false),
+              CardWidget(card: null, width: cardWidth, animate: false),
+              const SizedBox(width: 6),
+              CardWidget(card: null, width: cardWidth, animate: false),
             ],
           )
         else
@@ -488,7 +515,7 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
             runSpacing: 5,
             children: [
               for (final card in dealer.cards)
-                CardWidget(card: card, width: 60, animate: false),
+                CardWidget(card: card, width: cardWidth, animate: false),
             ],
           ),
         if (hasCards) ...[
@@ -681,8 +708,9 @@ class _OnlineTableScreenState extends State<OnlineTableScreen>
                           c.setReady(!me.ready);
                         },
                   style: OutlinedButton.styleFrom(
-                    foregroundColor:
-                        me?.ready == true ? AppColors.favorable : Colors.white70,
+                    foregroundColor: me?.ready == true
+                        ? AppColors.favorable
+                        : Colors.white70,
                     side: BorderSide(
                       color: me?.ready == true
                           ? AppColors.favorable
@@ -1095,9 +1123,12 @@ class _ShoeStrip extends StatelessWidget {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _stat('RC', table.runningCount > 0
-              ? '+${table.runningCount}'
-              : '${table.runningCount}', color),
+          _stat(
+              'RC',
+              table.runningCount > 0
+                  ? '+${table.runningCount}'
+                  : '${table.runningCount}',
+              color),
           _divider(),
           _stat('TC', tc.toStringAsFixed(1), color),
           _divider(),
@@ -1145,8 +1176,20 @@ class _ShoeStrip extends StatelessWidget {
 
 /// One player's seat: avatar, name, chips/cards, hand values, and results.
 class _SeatPod extends StatelessWidget {
+  /// A pod's width with room to spare: two to a row on a phone.
+  static const fullWidth = 156.0;
+
+  /// The narrowest a three-to-a-row pod gets before the table goes back to
+  /// two to a row.
+  static const compactMinWidth = 100.0;
+
   final OnlineSeat seat;
   final OnlinePhase phase;
+  final double width;
+
+  /// Three to a row: smaller cards, and the turn badge takes the status
+  /// row's place rather than adding a line.
+  final bool compact;
   final bool isActive;
   final bool isMe;
   final bool canKick;
@@ -1155,19 +1198,24 @@ class _SeatPod extends StatelessWidget {
   const _SeatPod({
     required this.seat,
     required this.phase,
+    this.width = fullWidth,
+    this.compact = false,
     required this.isActive,
     required this.isMe,
     required this.canKick,
     required this.onKick,
   });
 
+  double get _padding => compact ? 7 : 9;
+
   @override
   Widget build(BuildContext context) {
     final (accent, glow) = _accent();
+    final chips = _statusChips();
     return AnimatedContainer(
       duration: const Duration(milliseconds: 220),
-      width: 156,
-      padding: const EdgeInsets.all(9),
+      width: width,
+      padding: EdgeInsets.all(_padding),
       decoration: BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
@@ -1187,17 +1235,32 @@ class _SeatPod extends StatelessWidget {
         opacity: seat.connected ? 1 : 0.55,
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          children: [
-            _headerRow(),
-            const SizedBox(height: 8),
-            SizedBox(height: 88, child: Center(child: _middle())),
-            const SizedBox(height: 6),
-            _statusRow(),
-            if (isActive) ...[
-              const SizedBox(height: 6),
-              const _TurnBadge(),
-            ],
-          ],
+          children: compact
+              ? [
+                  _headerRow(),
+                  const SizedBox(height: 6),
+                  SizedBox(height: 72, child: Center(child: _middle())),
+                  if (chips.isNotEmpty) ...[
+                    const SizedBox(height: 5),
+                    _statusRow(chips),
+                  ],
+                  if (isActive) ...[
+                    const SizedBox(height: 5),
+                    _TurnBadge(mine: isMe),
+                  ],
+                  if (chips.isEmpty && !isActive) const SizedBox(height: 3),
+                ]
+              : [
+                  _headerRow(),
+                  const SizedBox(height: 8),
+                  SizedBox(height: 88, child: Center(child: _middle())),
+                  const SizedBox(height: 6),
+                  _statusRow(chips),
+                  if (isActive) ...[
+                    const SizedBox(height: 6),
+                    _TurnBadge(mine: isMe),
+                  ],
+                ],
         ),
       ),
     );
@@ -1227,26 +1290,8 @@ class _SeatPod extends StatelessWidget {
   Widget _headerRow() {
     return Row(
       children: [
-        Container(
-          width: 26,
-          height: 26,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: isMe ? AppColors.gold : AppColors.surface,
-            border: Border.all(
-                color: AppColors.gold.withValues(alpha: 0.6), width: 1.3),
-          ),
-          alignment: Alignment.center,
-          child: Text(
-            seat.name.isEmpty ? '?' : seat.name.substring(0, 1).toUpperCase(),
-            style: TextStyle(
-              color: isMe ? AppColors.wood : Colors.white,
-              fontSize: 12,
-              fontWeight: FontWeight.w900,
-            ),
-          ),
-        ),
-        const SizedBox(width: 7),
+        PlayerAvatar(name: seat.name, size: compact ? 22 : 26, isMe: isMe),
+        SizedBox(width: compact ? 6 : 7),
         Expanded(
           child: Text(
             isMe ? '${seat.name} (you)' : seat.name,
@@ -1273,9 +1318,20 @@ class _SeatPod extends StatelessWidget {
     );
   }
 
+  /// Cards as large as the pod allows: in a slim pod a single hand shrinks
+  /// its cards to stay on one line.
+  double _cardWidth() {
+    if (!compact) return seat.hands.length > 2 ? 30.0 : 38.0;
+    if (seat.hands.length > 1) return 22;
+    final cards = max(2, seat.hands.first.hand.cards.length);
+    // The pod's padding, the hand's own 3 px each side, 2 px between cards.
+    final room = width - 2 * _padding - 6 - 2 * (cards - 1);
+    return (room / cards).clamp(20.0, 34.0);
+  }
+
   Widget _middle() {
     if (seat.hands.isNotEmpty) {
-      final cardWidth = seat.hands.length > 2 ? 30.0 : 38.0;
+      final cardWidth = _cardWidth();
       return SingleChildScrollView(
         scrollDirection: Axis.horizontal,
         child: Row(
@@ -1314,7 +1370,7 @@ class _SeatPod extends StatelessWidget {
     );
   }
 
-  Widget _statusRow() {
+  List<Widget> _statusChips() {
     final chips = <Widget>[];
 
     if (seat.insuranceBet > 0) {
@@ -1325,7 +1381,11 @@ class _SeatPod extends StatelessWidget {
     if (phase == OnlinePhase.results && seat.inRound) {
       final net = seat.netLastRound;
       chips.add(_chip(
-        net > 0 ? '+\$$net' : net < 0 ? '−\$${net.abs()}' : 'PUSH',
+        net > 0
+            ? '+\$$net'
+            : net < 0
+                ? '−\$${net.abs()}'
+                : 'PUSH',
         net > 0
             ? AppColors.favorable
             : net < 0
@@ -1339,15 +1399,18 @@ class _SeatPod extends StatelessWidget {
       } else if (phase == OnlinePhase.betting && seat.ready) {
         chips.add(_chip('SITTING OUT', AppColors.neutral, filled: false));
       } else {
-        chips.add(_chip('—', Colors.black.withValues(alpha: 0.4),
-            filled: false));
+        chips.add(
+            _chip('—', Colors.black.withValues(alpha: 0.4), filled: false));
       }
     }
 
     if (phase == OnlinePhase.betting && seat.ready && seat.bet > 0) {
       chips.add(_chip('READY', AppColors.favorable, filled: false));
     }
+    return chips;
+  }
 
+  Widget _statusRow(List<Widget> chips) {
     if (chips.isEmpty) return const SizedBox(height: 4);
     return Wrap(
       alignment: WrapAlignment.center,
@@ -1367,8 +1430,9 @@ class _SeatPod extends StatelessWidget {
         child: Text(
           label,
           style: TextStyle(
-            color:
-                filled && color == AppColors.gold ? AppColors.wood : Colors.white,
+            color: filled && color == AppColors.gold
+                ? AppColors.wood
+                : Colors.white,
             fontSize: 11,
             fontWeight: FontWeight.w900,
           ),
@@ -1507,7 +1571,11 @@ class _GoldButton extends StatelessWidget {
               ? const LinearGradient(
                   begin: Alignment.topCenter,
                   end: Alignment.bottomCenter,
-                  colors: [Color(0xFFFFE680), AppColors.gold, Color(0xFFB8860B)],
+                  colors: [
+                    Color(0xFFFFE680),
+                    AppColors.gold,
+                    Color(0xFFB8860B)
+                  ],
                 )
               : null,
           color: enabled ? null : AppColors.goldDim.withValues(alpha: 0.4),
@@ -1668,9 +1736,11 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
-/// Bouncing "YOUR TURN" pill shown on the active seat.
+/// Bouncing pill on the active seat: "YOUR TURN" on your own, "PLAYING" on
+/// anyone else's.
 class _TurnBadge extends StatefulWidget {
-  const _TurnBadge();
+  final bool mine;
+  const _TurnBadge({required this.mine});
 
   @override
   State<_TurnBadge> createState() => _TurnBadgeState();
@@ -1713,9 +1783,9 @@ class _TurnBadgeState extends State<_TurnBadge>
                 color: AppColors.gold.withValues(alpha: 0.55), blurRadius: 12),
           ],
         ),
-        child: const Text(
-          'YOUR TURN',
-          style: TextStyle(
+        child: Text(
+          widget.mine ? 'YOUR TURN' : 'PLAYING',
+          style: const TextStyle(
             color: AppColors.wood,
             fontSize: 10,
             fontWeight: FontWeight.w900,

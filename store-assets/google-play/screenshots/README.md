@@ -1,5 +1,14 @@
 # Google Play Phone Screenshots
 
+**Current set: `hilo-1080x1920/`** — seven real 1080 x 1920 captures for 1.5,
+with upload order and captions in its README.
+
+The files below are the older 1.1 set, kept for reference only.
+
+---
+
+## The 1.1 set
+
 These are authentic screenshots from the Android build on a 1080 x 2400 Pixel
 emulator. Upload the standard Google Play `play-ready/` copies in this order:
 

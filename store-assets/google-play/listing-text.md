@@ -44,7 +44,9 @@ are automatic — then test them against friends in real time.
 A built-in coach scores every decision against the correct play for your
 table and tells you when a play was wrong — "16 vs 5, basic strategy says
 Stand". Accuracy is tracked by hard totals, soft totals and pairs, and the
-hands you miss most are listed so you can drill them.
+hands you miss most are listed so you can drill them. After each session you
+see your accuracy, the one mistake to fix, and the drill that fixes it — and
+the home screen always suggests your next step.
 
 HI-LO TRAINING — COUNT AT A REAL TABLE
 A dealer deals real rounds to a full table and stops at a random card to ask
@@ -102,18 +104,18 @@ cash out virtual chips. Nothing here is a guarantee of results in a casino.
 ## Release Notes (500 char limit)
 
 ```
-New in 1.4:
+New in 1.5:
 
-- Hi-Lo Training: a dealer deals real rounds and asks for the count at random
-- Daily Challenge with a shared leaderboard, plus Survival, Duel and Practice
-- Challenge a friend with a code that deals them your exact shoe
-- True-count questions, ranks, achievements and combos
-- An optional reminder when the day's shoe is ready
-- The screen stays on while you count
+- Today's next step: one suggestion on the home screen, picked from your play
+- After a table session: your accuracy, the mistake to fix, and the drill for it
+- Set your name once; it shows at online tables, on the boards and on challenges
+- Practice Setup puts the table rules, shoe and coaching in one place
+- A full online table of five fits on one screen
+- Clearer colours: blue for drills, violet for friends, red for mistakes
 ```
 
-If 1.3.1 (the first build with Hi-Lo Training) was already published, these
-notes still read correctly — 1.4 is the first release that announces it.
+444 characters. If 1.4 never went out, put its Hi-Lo Training lines first
+and trim this list to fit — Hi-Lo Training is the bigger news.
 
 ## Notes for whoever edits this next
 
@@ -122,15 +124,10 @@ notes still read correctly — 1.4 is the first release that announces it.
 - **Translations are the cheapest reach you have.** The listing is short and
   Play will machine-translate it; even five languages meaningfully widens
   who can be shown the app.
-- **Screenshots are stale.** They predate online multiplayer and Hi-Lo
-  Training. Shoot these, in this order:
-  1. Hi-Lo Training mid-round, five seats, the dealer's hole card face down
-  2. The count check with its number pad (a Survival game shows the hearts)
-  3. A verdict with a combo — "+400", "COMBO ×2!"
-  4. The Hi-Lo hub: rank, Daily Challenge card, modes
-  5. The lobby
-  6. A five-seat online table
-  7. The strategy coach correcting a play
+- **Screenshots:** the seven 1.5 captures are in
+  `screenshots/hilo-1080x1920/`, in upload order, with a suggested caption
+  each in that folder's README. They are real captures from the app on a
+  1080 x 1920 emulator; `tool/capture_store_screenshots.py` reshoots them.
 - **Every league in the copy is live** (checked 2026-10-01): the weekly
   profit and accuracy boards, the Hi-Lo Daily board and the weekly Survival
   board. If any is ever switched off, take its line out of the description

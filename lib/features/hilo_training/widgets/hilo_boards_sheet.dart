@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../theme/app_theme.dart';
+import '../../profile/player_identity.dart';
 import '../hilo_boards_service.dart';
 import '../hilo_text.dart';
 
@@ -12,6 +13,7 @@ Future<void> showHiLoDailyBoardSheet(
     context: context,
     backgroundColor: AppColors.surface,
     isScrollControlled: true,
+    useSafeArea: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
@@ -24,6 +26,7 @@ Future<void> showHiLoSurvivalBoardSheet(BuildContext context) {
     context: context,
     backgroundColor: AppColors.surface,
     isScrollControlled: true,
+    useSafeArea: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
@@ -325,6 +328,8 @@ class _RankRow extends StatelessWidget {
               ),
             ),
           ),
+          PlayerAvatar(name: entry.name, size: 26, isMe: current),
+          const SizedBox(width: 10),
           Expanded(
             child: Text(
               entry.name,

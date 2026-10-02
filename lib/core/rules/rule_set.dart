@@ -153,7 +153,7 @@ class RuleSet {
     id: 'eight_deck_s17',
     name: 'Atlantic City',
     blurb: 'Dealer stands on soft 17, double after split. Usually dealt '
-        'from eight decks — pick the 8 D shoe to match.',
+        'from eight decks — pick the 8-deck shoe to match.',
     dealerHitsSoft17: false,
   );
 

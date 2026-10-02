@@ -144,11 +144,15 @@ class _PageShell extends StatelessWidget {
   final String body;
   final Widget? extra;
 
+  /// A small line above the title — the app's name on the first page.
+  final String? eyebrow;
+
   const _PageShell({
     required this.art,
     required this.title,
     required this.body,
     this.extra,
+    this.eyebrow,
   });
 
   @override
@@ -161,6 +165,19 @@ class _PageShell extends StatelessWidget {
           const SizedBox(height: 10),
           art,
           const SizedBox(height: 26),
+          if (eyebrow != null) ...[
+            Text(
+              eyebrow!,
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppColors.gold.withValues(alpha: 0.9),
+                fontSize: 11.5,
+                fontWeight: FontWeight.w900,
+                letterSpacing: 3,
+              ),
+            ),
+            const SizedBox(height: 10),
+          ],
           Text(
             title,
             textAlign: TextAlign.center,
@@ -241,6 +258,7 @@ class _WhatThisIsPage extends StatelessWidget {
           ],
         ),
       ),
+      eyebrow: 'HI-LO BLACKJACK TRAINER',
       title: 'Count cards,\nnot just chips',
       body: 'A practice table built to make basic strategy and the Hi-Lo '
           'count automatic — before you ever sit at a real one.',

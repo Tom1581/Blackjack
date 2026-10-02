@@ -405,7 +405,7 @@ class _AnswerClockBarState extends State<AnswerClockBar>
         final left = 1 - _ctrl.value;
         final secondsLeft = (widget.limit.inMilliseconds * left / 1000).ceil();
         final urgent = left < 0.3;
-        final color = urgent ? AppColors.unfavorable : AppColors.gold;
+        final color = urgent ? AppColors.error : AppColors.gold;
         return Row(
           children: [
             Icon(Icons.timer_outlined, size: 16, color: color),
@@ -607,7 +607,7 @@ class VerdictPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final right = answer.correct;
-    final color = right ? AppColors.favorable : AppColors.unfavorable;
+    final color = right ? AppColors.success : AppColors.error;
     final title =
         right ? 'SPOT ON' : (answer.timedOut ? 'TIME\'S UP' : 'NOT QUITE');
     final pts = answer.points;
@@ -851,7 +851,7 @@ class LivesRow extends StatelessWidget {
                     builder: (_, s, child) =>
                         Transform.scale(scale: s, child: child),
                     child: Icon(Icons.heart_broken,
-                        color: AppColors.unfavorable, size: size),
+                        color: AppColors.error, size: size),
                   )
                 : Icon(
                     i < lives ? Icons.favorite : Icons.favorite_border,
@@ -876,7 +876,7 @@ class _TrueCountLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final right = answer.trueCountCorrect == true;
     final given = answer.trueCountGiven;
-    final color = right ? AppColors.favorable : AppColors.unfavorable;
+    final color = right ? AppColors.success : AppColors.error;
     return Container(
       key: const ValueKey('hilo-true-count'),
       padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
@@ -983,15 +983,15 @@ class _LevelUpNote extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       decoration: BoxDecoration(
-        color: AppColors.favorable.withValues(alpha: 0.12),
+        color: AppColors.success.withValues(alpha: 0.12),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: AppColors.favorable.withValues(alpha: 0.6)),
+        border: Border.all(color: AppColors.success.withValues(alpha: 0.6)),
       ),
       child: Text(
         'LEVEL $level — faster dealer, $players players',
         textAlign: TextAlign.center,
         style: const TextStyle(
-          color: AppColors.favorable,
+          color: AppColors.success,
           fontSize: 12.5,
           fontWeight: FontWeight.w900,
           letterSpacing: 0.8,
@@ -1124,7 +1124,7 @@ class _DuelSide extends StatelessWidget {
               Icon(
                 right ? Icons.check_circle : Icons.cancel,
                 size: 18,
-                color: right ? AppColors.favorable : AppColors.unfavorable,
+                color: right ? AppColors.success : AppColors.error,
               ),
               const SizedBox(width: 4),
               Text(

@@ -21,7 +21,14 @@ import 'training_widgets.dart';
 /// "My mistakes" deals the chart cells this player has actually got wrong at
 /// the table, so practice goes where it is needed.
 class StrategyDrillScreen extends ConsumerStatefulWidget {
-  const StrategyDrillScreen({super.key});
+  /// The focus the drill opens on — the home screen's next step can send the
+  /// player straight to the hands they need. The player can still change it.
+  final StrategyDrillFocus initialFocus;
+
+  const StrategyDrillScreen({
+    super.key,
+    this.initialFocus = StrategyDrillFocus.all,
+  });
 
   static const hands = 20;
 
@@ -32,7 +39,7 @@ class StrategyDrillScreen extends ConsumerStatefulWidget {
 
 class _StrategyDrillScreenState extends ConsumerState<StrategyDrillScreen> {
   final _rng = Random();
-  StrategyDrillFocus _focus = StrategyDrillFocus.all;
+  late StrategyDrillFocus _focus = widget.initialFocus;
   bool _running = false;
   bool _finished = false;
   List<String> _misses = const [];

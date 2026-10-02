@@ -33,6 +33,15 @@ class AppColors {
   static const unfavorable = Color(0xFFf87171);
   static const neutral = Color(0xFFb8c8d4);
 
+  // Mode accents — restrained, and only ever an accent on the felt, wood and
+  // gold: blue marks drills and practice, violet friends and challenges, mint
+  // a right answer and red a mistake. Each measures at least 6:1 against
+  // [bg], [surface] and [wood], so it reads as text, not just as a tint.
+  static const drill = Color(0xFF5AB0FF);
+  static const social = Color(0xFFB58CFF);
+  static const success = Color(0xFF5FD4A0);
+  static const error = Color(0xFFF87171);
+
   // Action button fill colors
   static const btnStand = Color(0xFF6B1A1A);
   static const btnSplit = Color(0xFF7A4E0A);

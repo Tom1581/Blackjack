@@ -181,11 +181,12 @@ class _StepTile extends StatelessWidget {
                   height: 44,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: AppColors.gold.withValues(alpha: 0.12),
+                    // Blue: drills and practice.
+                    color: AppColors.drill.withValues(alpha: 0.12),
                     border: Border.all(
-                        color: AppColors.gold.withValues(alpha: 0.5)),
+                        color: AppColors.drill.withValues(alpha: 0.5)),
                   ),
-                  child: Icon(icon, color: AppColors.gold, size: 22),
+                  child: Icon(icon, color: AppColors.drill, size: 22),
                 ),
                 const SizedBox(width: 14),
                 Expanded(

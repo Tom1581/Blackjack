@@ -16,6 +16,7 @@ Future<HiLoChallenge?> showChallengeCodeSheet(
     context: context,
     backgroundColor: AppColors.surface,
     isScrollControlled: true,
+    useSafeArea: true,
     shape: const RoundedRectangleBorder(
       borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
     ),
@@ -191,10 +192,10 @@ class _CodeSheetState extends State<_CodeSheet> {
               Container(
                 padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: AppColors.favorable.withValues(alpha: 0.08),
+                  color: AppColors.success.withValues(alpha: 0.08),
                   borderRadius: BorderRadius.circular(10),
                   border: Border.all(
-                      color: AppColors.favorable.withValues(alpha: 0.5)),
+                      color: AppColors.success.withValues(alpha: 0.5)),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -202,7 +203,7 @@ class _CodeSheetState extends State<_CodeSheet> {
                     Text(
                       'SCORE TO BEAT: ${points(c.score)}',
                       style: const TextStyle(
-                        color: AppColors.favorable,
+                        color: AppColors.success,
                         fontSize: 13,
                         fontWeight: FontWeight.w900,
                         letterSpacing: 0.8,
@@ -226,7 +227,7 @@ class _CodeSheetState extends State<_CodeSheet> {
               const Text(
                 'That code doesn\'t look right — check each character.',
                 key: ValueKey('hilo-code-error'),
-                style: TextStyle(color: AppColors.unfavorable, fontSize: 12.5),
+                style: TextStyle(color: AppColors.error, fontSize: 12.5),
               ),
             const SizedBox(height: 14),
             SizedBox(

@@ -3,14 +3,10 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:url_launcher/url_launcher.dart';
 import '../../core/ads/ad_service.dart';
 import '../../core/models/card_model.dart';
 import '../../core/audio/sound_service.dart';
 import '../../core/progress/daily_streak.dart';
-import '../../core/rules/rule_set.dart';
-import '../../core/rules/rules_store.dart';
-import '../../core/settings/table_prefs.dart';
 import '../../core/strategy/strategy_coach.dart';
 import '../../theme/app_theme.dart';
 import '../leaderboard/leaderboard_providers.dart';
@@ -25,7 +21,21 @@ import '../stats/stats_screen.dart';
 import '../table/table_provider.dart';
 import '../table/table_screen.dart';
 import '../table/widgets/card_widget.dart';
+import '../training/drills.dart' show StrategyDrillFocus;
+import '../training/speed_count_screen.dart';
+import '../training/strategy_drill_screen.dart';
 import '../training/training_center_screen.dart';
+import '../hilo_training/hilo_game.dart';
+import '../hilo_training/hilo_game_screen.dart';
+import '../hilo_training/hilo_training_progress.dart';
+import '../profile/player_identity.dart';
+import '../../core/progress/player_stats.dart';
+import 'next_step.dart';
+import 'practice_setup.dart';
+import 'session_report.dart';
+import 'widgets/brand_lockup.dart';
+import 'widgets/home_cards.dart';
+import 'widgets/session_report_sheet.dart';
 
 class LobbyScreen extends ConsumerStatefulWidget {
   const LobbyScreen({super.key});
@@ -86,6 +96,96 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
 
     ref.read(tableProvider.notifier).init();
     unawaited(ref.read(adServiceProvider).initialize());
+    _refreshHome();
+  }
+
+  /// The player's name, for the profile row ('' until they set one).
+  String _name = '';
+
+  /// Today's next step; null while the player's record loads.
+  NextStep? _nextStep;
+
+  /// Re-read what the home screen shows from the player's record — after
+  /// any screen it opened, since a game or a drill changes the suggestion.
+  void _refreshHome() {
+    unawaited(_loadName());
+    unawaited(_loadNextStep());
+  }
+
+  Future<void> _loadName() async {
+    final name = await PlayerIdentity.load();
+    if (mounted) setState(() => _name = name);
+  }
+
+  Future<void> _loadNextStep() async {
+    final inputs = NextStepInputs(
+      stats: await PlayerStatsStore.read(),
+      mastery: await StrategyCoach.readMastery(),
+      hilo: await HiLoTrainingProgress.loadProfile(),
+      today: HiLoDaily.numberFor(DateTime.now()),
+    );
+    if (mounted) setState(() => _nextStep = pickNextStep(inputs));
+  }
+
+  /// Open [screen]; refresh the home screen when the player comes back.
+  Future<void> _go(Widget screen, {bool strong = false}) async {
+    strong ? HapticFeedback.mediumImpact() : HapticFeedback.lightImpact();
+    await Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+    if (mounted) _refreshHome();
+  }
+
+  /// PLAY: the table, then — after a session worth summing up — a short
+  /// report with the one mistake that mattered and the drill to do next.
+  Future<void> _playTable() async {
+    HapticFeedback.mediumImpact();
+    final before = await TableSnapshot.take();
+    if (!mounted) return;
+    await Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const TableScreen()));
+    if (!mounted) return;
+    _refreshHome();
+    final report = SessionReport.between(before, await TableSnapshot.take());
+    if (!mounted || !report.worthShowing) return;
+    final drill = await showSessionReportSheet(
+      context,
+      report: report,
+      rules: ref.read(rulesProvider),
+      decks: ref.read(shoeModeProvider).numDecks,
+    );
+    if (drill != null && mounted) unawaited(_go(_drillScreen(drill)));
+  }
+
+  Widget _drillScreen(NextDrill drill) => switch (drill) {
+        NextDrill.mistakes =>
+          const StrategyDrillScreen(initialFocus: StrategyDrillFocus.mistakes),
+        NextDrill.strategy => const StrategyDrillScreen(),
+        NextDrill.speedCount => const SpeedCountScreen(),
+        NextDrill.hiLoTraining => const HiLoTrainingScreen(),
+      };
+
+  Future<void> _editName() async {
+    final saved = await showEditNameSheet(context, current: _name);
+    if (saved != null && mounted) setState(() => _name = saved);
+  }
+
+  void _openNextStep(NextStep step) {
+    switch (step.action) {
+      case NextStepAction.playTable:
+        unawaited(_playTable());
+      case NextStepAction.playDaily:
+        unawaited(_go(
+            HiLoGameScreen(spec: HiLoGameSpec.daily(step.dailyNumber!)),
+            strong: true));
+      case NextStepAction.drillMistakes:
+      case NextStepAction.drillCategory:
+        unawaited(_go(StrategyDrillScreen(
+            initialFocus: step.focus ?? StrategyDrillFocus.all)));
+      case NextStepAction.speedCount:
+        unawaited(_go(const SpeedCountScreen()));
+      case NextStepAction.survival:
+        unawaited(
+            _go(HiLoGameScreen(spec: HiLoGameSpec.survival()), strong: true));
+    }
   }
 
   @override
@@ -100,8 +200,7 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
   @override
   Widget build(BuildContext context) {
     final state = ref.watch(tableProvider);
-    final showCount = ref.watch(showCountProvider);
-    final shoeMode = ref.watch(shoeModeProvider);
+    final step = _nextStep;
 
     return Scaffold(
       body: Stack(
@@ -129,82 +228,71 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
             ),
           ),
 
-          // Layer 3 — content
+          // Layer 3 — content. Above the fold on any phone: who you are,
+          // what to do next, and PLAY.
           SafeArea(
             child: SingleChildScrollView(
               physics: const BouncingScrollPhysics(),
-              padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
               child: FadeTransition(
                 opacity: _entranceFade,
                 child: Column(
                   children: [
                     SlideTransition(
                       position: _titleSlide,
-                      child: _TitleBlock(shimmer: _shimmerCtrl),
+                      child: BrandLockup(shimmer: _shimmerCtrl),
                     ),
-                    const SizedBox(height: 20),
+                    const SizedBox(height: 8),
                     SlideTransition(
                       position: _heroSlide,
                       child: _HeroCards(float: _floatCtrl),
                     ),
-                    const SizedBox(height: 20),
-                    _BankrollCard(bankroll: state.bankroll),
+                    const SizedBox(height: 10),
+                    ProfileBankrollRow(
+                      name: _name,
+                      bankroll: state.bankroll,
+                      onEditName: _editName,
+                    ),
                     const SizedBox(height: 12),
-                    const _DailyStreakCard(),
-                    const SizedBox(height: 16),
+                    NextStepCard(
+                      step: step,
+                      onTap: step == null ? null : () => _openNextStep(step),
+                    ),
+                    const SizedBox(height: 14),
                     _GlowingPlayButton(
                       pulse: _pulseCtrl,
                       enabled: state.bankroll > 0,
-                      onTap: () {
-                        HapticFeedback.mediumImpact();
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const TableScreen(),
-                        ));
-                      },
+                      onTap: _playTable,
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 14),
+                    const _DailyStreakCard(),
+                    const SizedBox(height: 14),
                     _SecondaryButton(
                       icon: Icons.style_outlined,
                       label: 'HI-LO  TRAINING',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const HiLoTrainingScreen(),
-                        ));
-                      },
+                      accent: AppColors.drill,
+                      onTap: () => _go(const HiLoTrainingScreen()),
                     ),
                     const SizedBox(height: 12),
                     _SecondaryButton(
                       icon: Icons.timer_outlined,
                       label: 'DAILY  COUNT  DRILL',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const DailyCountDrillScreen(),
-                        ));
-                      },
+                      accent: AppColors.drill,
+                      onTap: () => _go(const DailyCountDrillScreen()),
                     ),
                     const SizedBox(height: 12),
                     _SecondaryButton(
                       icon: Icons.school_outlined,
                       label: 'TRAINING  CENTER',
-                      onTap: () {
-                        HapticFeedback.lightImpact();
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const TrainingCenterScreen(),
-                        ));
-                      },
+                      accent: AppColors.drill,
+                      onTap: () => _go(const TrainingCenterScreen()),
                     ),
                     const SizedBox(height: 12),
                     _SecondaryButton(
                       icon: Icons.groups,
                       label: 'PLAY  ONLINE  WITH  FRIENDS',
-                      onTap: () {
-                        HapticFeedback.mediumImpact();
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const OnlineEntryScreen(),
-                        ));
-                      },
+                      accent: AppColors.social,
+                      onTap: () => _go(const OnlineEntryScreen(), strong: true),
                     ),
                     const SizedBox(height: 14),
                     const _WeeklyTop3Card(),
@@ -212,16 +300,10 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
                     _SecondaryButton(
                       icon: Icons.bar_chart,
                       label: 'STATS  &  HISTORY',
-                      onTap: () {
-                        Navigator.of(context).push(MaterialPageRoute(
-                          builder: (_) => const StatsScreen(),
-                        ));
-                      },
+                      onTap: () => _go(const StatsScreen()),
                     ),
                     const SizedBox(height: 18),
-                    _SettingsPanel(showCount: showCount, shoeMode: shoeMode),
-                    const SizedBox(height: 12),
-                    const _HiLoExplainer(),
+                    const PracticeSetupCard(),
                     const SizedBox(height: 24),
                   ],
                 ),
@@ -230,174 +312,6 @@ class _LobbyScreenState extends ConsumerState<LobbyScreen>
           ),
         ],
       ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-//  Title block — suit row, ornamented dividers, shimmering gold name,
-//  italic tagline.
-// ─────────────────────────────────────────────────────────────────────────
-
-class _TitleBlock extends StatelessWidget {
-  final Animation<double> shimmer;
-  const _TitleBlock({required this.shimmer});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        const SizedBox(height: 8),
-        const _OrnamentDivider(),
-        const SizedBox(height: 14),
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            _suit('♠', AppColors.neutral),
-            _gap,
-            _suit('♥', AppColors.hearts),
-            _gap,
-            _suit('♦', AppColors.diamonds),
-            _gap,
-            _suit('♣', AppColors.neutral),
-          ],
-        ),
-        const SizedBox(height: 12),
-        AnimatedBuilder(
-          animation: shimmer,
-          builder: (_, __) {
-            return ShaderMask(
-              shaderCallback: (rect) {
-                final t = shimmer.value;
-                return LinearGradient(
-                  begin: Alignment(-1.5 + t * 3, -0.4),
-                  end: Alignment(0.5 + t * 3, 0.4),
-                  colors: const [
-                    Color(0xFFB8860B),
-                    Color(0xFFD4AF37),
-                    Color(0xFFFFE680),
-                    Color(0xFFD4AF37),
-                    Color(0xFFB8860B),
-                  ],
-                  stops: const [0.0, 0.35, 0.5, 0.65, 1.0],
-                ).createShader(rect);
-              },
-              child: const Text(
-                'BLACKJACK',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 44,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 8,
-                  shadows: [
-                    Shadow(
-                      color: Color(0x80D4AF37),
-                      blurRadius: 22,
-                    ),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'HI-LO  CARD  COUNTING',
-          style: TextStyle(
-            color: AppColors.gold.withValues(alpha: 0.9),
-            fontSize: 11,
-            letterSpacing: 5,
-            fontWeight: FontWeight.w700,
-          ),
-        ),
-        const SizedBox(height: 10),
-        Text(
-          'play like a real casino',
-          style: TextStyle(
-            color: Colors.white.withValues(alpha: 0.7),
-            fontSize: 12,
-            fontStyle: FontStyle.italic,
-            letterSpacing: 1,
-          ),
-        ),
-        const SizedBox(height: 14),
-        const _OrnamentDivider(),
-      ],
-    );
-  }
-
-  Widget _suit(String s, Color c) => Text(
-        s,
-        style: TextStyle(
-          color: c.withValues(alpha: 0.72),
-          fontSize: 18,
-          shadows: const [Shadow(color: Colors.black54, blurRadius: 4)],
-        ),
-      );
-
-  Widget get _gap => const SizedBox(width: 14);
-}
-
-class _OrnamentDivider extends StatelessWidget {
-  const _OrnamentDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    Widget line() => Expanded(
-          child: Container(
-            height: 1,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.gold.withValues(alpha: 0),
-                  AppColors.gold.withValues(alpha: 0.55),
-                ],
-              ),
-            ),
-          ),
-        );
-    return Row(
-      children: [
-        line(),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Icon(Icons.diamond, size: 9, color: AppColors.gold),
-        ),
-        Expanded(
-          child: Container(
-            height: 1,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.gold.withValues(alpha: 0.55),
-                  AppColors.gold.withValues(alpha: 0.55),
-                ],
-              ),
-            ),
-          ),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8),
-          child: Icon(Icons.diamond, size: 9, color: AppColors.gold),
-        ),
-        Container(
-          height: 1,
-          width: 0,
-        ),
-        Expanded(
-          child: Container(
-            height: 1,
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                colors: [
-                  AppColors.gold.withValues(alpha: 0.55),
-                  AppColors.gold.withValues(alpha: 0),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ],
     );
   }
 }
@@ -413,7 +327,7 @@ class _HeroCards extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return SizedBox(
-      height: 168,
+      height: 132,
       child: AnimatedBuilder(
         animation: float,
         builder: (_, __) {
@@ -426,8 +340,8 @@ class _HeroCards extends StatelessWidget {
             children: [
               // Soft golden halo behind the pair
               Container(
-                width: 220,
-                height: 140,
+                width: 190,
+                height: 116,
                 decoration: BoxDecoration(
                   shape: BoxShape.rectangle,
                   borderRadius: BorderRadius.circular(80),
@@ -441,26 +355,26 @@ class _HeroCards extends StatelessWidget {
               ),
               // Left card — Ace of Spades, tilted left, slightly down
               Transform.translate(
-                offset: Offset(-38, dy1),
+                offset: Offset(-32, dy1),
                 child: Transform.rotate(
                   angle: -8 * math.pi / 180,
                   child: const CardWidget(
                     card: CardModel(
                         suit: Suit.spades, rank: Rank.ace, faceUp: true),
-                    width: 96,
+                    width: 78,
                     animate: false,
                   ),
                 ),
               ),
               // Right card — King of Hearts, tilted right
               Transform.translate(
-                offset: Offset(38, dy2),
+                offset: Offset(32, dy2),
                 child: Transform.rotate(
                   angle: 6 * math.pi / 180,
                   child: const CardWidget(
                     card: CardModel(
                         suit: Suit.hearts, rank: Rank.king, faceUp: true),
-                    width: 96,
+                    width: 78,
                     animate: false,
                   ),
                 ),
@@ -495,91 +409,6 @@ class _HeroCards extends StatelessWidget {
             ],
           );
         },
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────────────────
-//  Bankroll — wood card with gold rim, embossed label.
-// ─────────────────────────────────────────────────────────────────────────
-
-class _BankrollCard extends StatelessWidget {
-  final int bankroll;
-  const _BankrollCard({required this.bankroll});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 16),
-      decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Color(0xFF3A1808), Color(0xFF1F0A02)],
-        ),
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(
-            color: AppColors.gold.withValues(alpha: 0.45), width: 1.5),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.55),
-            blurRadius: 14,
-            offset: const Offset(0, 6),
-          ),
-          BoxShadow(
-            color: AppColors.gold.withValues(alpha: 0.08),
-            blurRadius: 24,
-            spreadRadius: 1,
-          ),
-        ],
-      ),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.gold,
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.gold.withValues(alpha: 0.5),
-                  blurRadius: 10,
-                ),
-              ],
-            ),
-            child: const Icon(Icons.savings, color: AppColors.wood, size: 20),
-          ),
-          const SizedBox(width: 14),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'YOUR BANKROLL',
-                  style: TextStyle(
-                    color: AppColors.gold.withValues(alpha: 0.9),
-                    fontSize: 9.5,
-                    letterSpacing: 3,
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '\$${formatChips(bankroll)}',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
       ),
     );
   }
@@ -689,19 +518,25 @@ class _SecondaryButton extends StatelessWidget {
   final String label;
   final VoidCallback onTap;
 
+  /// The mode accent: blue for drills, violet for playing with friends, gold
+  /// for everything else.
+  final Color accent;
+
   const _SecondaryButton({
     required this.icon,
     required this.label,
     required this.onTap,
+    this.accent = AppColors.gold,
   });
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
+      width: double.infinity,
       height: 50,
       child: OutlinedButton.icon(
         onPressed: onTap,
-        icon: Icon(icon, size: 18, color: AppColors.gold),
+        icon: Icon(icon, size: 18, color: accent),
         label: Text(
           label,
           style: const TextStyle(
@@ -713,7 +548,7 @@ class _SecondaryButton extends StatelessWidget {
         ),
         style: OutlinedButton.styleFrom(
           backgroundColor: Colors.black.withValues(alpha: 0.25),
-          side: BorderSide(color: AppColors.gold.withValues(alpha: 0.35)),
+          side: BorderSide(color: accent.withValues(alpha: 0.4)),
           shape:
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
@@ -1035,876 +870,6 @@ class _StreakPip extends StatelessWidget {
           ),
         ),
       ],
-    );
-  }
-}
-
-/// Which table the player is practising against. Strategy is not universal,
-/// so the coach and the dealer both follow whatever is chosen here.
-class _RulePickerRow extends ConsumerWidget {
-  const _RulePickerRow();
-
-  Future<void> _pick(BuildContext context, WidgetRef ref) async {
-    final current = ref.read(rulesProvider);
-    final chosen = await showModalBottomSheet<RuleSet>(
-      context: context,
-      backgroundColor: AppColors.surface,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'TABLE RULES',
-                style: TextStyle(
-                  color: AppColors.gold.withValues(alpha: 0.85),
-                  fontSize: 11,
-                  letterSpacing: 2.5,
-                  fontWeight: FontWeight.w900,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                'The correct play changes with the house rules. Both the '
-                'dealer and the coach follow whichever table you pick.',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.6),
-                  fontSize: 12.5,
-                  height: 1.4,
-                ),
-              ),
-              const SizedBox(height: 16),
-              for (final preset in RuleSet.presets) ...[
-                _RuleOption(
-                  rules: preset,
-                  selected: preset.id == current.id,
-                  onTap: () => Navigator.pop(sheetContext, preset),
-                ),
-                const SizedBox(height: 8),
-              ],
-              const SizedBox(height: 4),
-              Text(
-                'The number of decks is the Shoe setting; the coach uses the '
-                'right chart for 2, 6 and 8 decks. Single deck is not '
-                'offered.',
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.4),
-                  fontSize: 11.5,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-
-    if (chosen == null || chosen.id == current.id) return;
-    await RulesStore.select(chosen);
-    ref.read(rulesProvider.notifier).state = chosen;
-  }
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final rules = ref.watch(rulesProvider);
-    return GestureDetector(
-      onTap: () => _pick(context, ref),
-      behavior: HitTestBehavior.opaque,
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Table rules',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  '${rules.name} · ${rules.summary}',
-                  style: TextStyle(
-                    color: rules.isUnfavourable
-                        ? AppColors.unfavorable
-                        : AppColors.gold.withValues(alpha: 0.8),
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          Icon(Icons.chevron_right,
-              color: Colors.white.withValues(alpha: 0.5), size: 20),
-        ],
-      ),
-    );
-  }
-}
-
-class _RuleOption extends StatelessWidget {
-  final RuleSet rules;
-  final bool selected;
-  final VoidCallback onTap;
-
-  const _RuleOption({
-    required this.rules,
-    required this.selected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        padding: const EdgeInsets.all(13),
-        decoration: BoxDecoration(
-          color: selected
-              ? AppColors.gold.withValues(alpha: 0.12)
-              : Colors.black.withValues(alpha: 0.25),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: selected
-                ? AppColors.gold
-                : Colors.white.withValues(alpha: 0.12),
-            width: selected ? 1.5 : 1,
-          ),
-        ),
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Text(
-                        rules.name,
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 14,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                      if (rules.isUnfavourable) ...[
-                        const SizedBox(width: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 2),
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(20),
-                            border: Border.all(
-                                color: AppColors.unfavorable
-                                    .withValues(alpha: 0.7)),
-                          ),
-                          child: const Text(
-                            'BAD TABLE',
-                            style: TextStyle(
-                              color: AppColors.unfavorable,
-                              fontSize: 8.5,
-                              fontWeight: FontWeight.w900,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    rules.blurb,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.58),
-                      fontSize: 12,
-                      height: 1.35,
-                    ),
-                  ),
-                  const SizedBox(height: 5),
-                  Text(
-                    rules.summary,
-                    style: TextStyle(
-                      color: AppColors.gold.withValues(alpha: 0.75),
-                      fontSize: 10.5,
-                      fontWeight: FontWeight.w800,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            if (selected)
-              const Icon(Icons.check_circle, color: AppColors.gold, size: 20),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Basic-strategy hints. On by default — this is a trainer, and hiding the
-/// answer by default helps nobody learn it.
-class _HintsToggleRow extends StatefulWidget {
-  const _HintsToggleRow();
-
-  @override
-  State<_HintsToggleRow> createState() => _HintsToggleRowState();
-}
-
-class _HintsToggleRowState extends State<_HintsToggleRow> {
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(
-          child: Text(
-            'Basic strategy hints',
-            style: TextStyle(color: Colors.white70, fontSize: 14),
-          ),
-        ),
-        Switch(
-          value: StrategyCoach.hintsEnabled,
-          onChanged: (value) async {
-            await StrategyCoach.setHintsEnabled(value);
-            if (mounted) setState(() {});
-          },
-        ),
-      ],
-    );
-  }
-}
-
-/// Grade against the Illustrious 18 / Fab 4 index plays.
-class _IndexPlaysToggleRow extends ConsumerWidget {
-  const _IndexPlaysToggleRow();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final enabled = ref.watch(indexPlaysProvider);
-    return Row(
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Index plays (Illustrious 18)',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-              SizedBox(height: 2),
-              Text(
-                'The coach follows the count, not just the chart. '
-                '4+ deck shoes.',
-                style: TextStyle(color: Colors.white38, fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-        Switch(
-          value: enabled,
-          onChanged: (v) {
-            ref.read(indexPlaysProvider.notifier).state = v;
-            TablePrefs.setIndexPlays(v);
-          },
-        ),
-      ],
-    );
-  }
-}
-
-/// Show the bet the true count calls for, in the player's own units.
-class _BetCoachRow extends ConsumerWidget {
-  const _BetCoachRow();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final enabled = ref.watch(betCoachProvider);
-    final unit = ref.watch(betUnitProvider);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            const Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Bet spread coach',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                  SizedBox(height: 2),
-                  Text(
-                    '1 unit up to +2, then true count − 1 units (max 8)',
-                    style: TextStyle(color: Colors.white38, fontSize: 11),
-                  ),
-                ],
-              ),
-            ),
-            Switch(
-              value: enabled,
-              onChanged: (v) {
-                ref.read(betCoachProvider.notifier).state = v;
-                TablePrefs.setBetCoach(v);
-              },
-            ),
-          ],
-        ),
-        if (enabled)
-          Padding(
-            padding: const EdgeInsets.only(top: 2),
-            child: Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'Unit',
-                    style: TextStyle(color: Colors.white54, fontSize: 12.5),
-                  ),
-                ),
-                for (final u in TablePrefs.betUnits)
-                  GestureDetector(
-                    onTap: () {
-                      HapticFeedback.lightImpact();
-                      ref.read(betUnitProvider.notifier).state = u;
-                      TablePrefs.setBetUnit(u);
-                    },
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      margin: const EdgeInsets.only(left: 5),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 7, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: u == unit ? AppColors.gold : Colors.transparent,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: u == unit
-                              ? AppColors.gold
-                              : AppColors.gold.withValues(alpha: 0.25),
-                        ),
-                      ),
-                      child: Text(
-                        '\$$u',
-                        style: TextStyle(
-                          color: u == unit ? AppColors.wood : Colors.white54,
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w800,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-/// Quiz the running count every few rounds while the HUD is hidden.
-class _CountCheckToggleRow extends ConsumerWidget {
-  const _CountCheckToggleRow();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final enabled = ref.watch(countCheckEnabledProvider);
-    return Row(
-      children: [
-        const Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Count check quiz',
-                style: TextStyle(color: Colors.white70, fontSize: 14),
-              ),
-              SizedBox(height: 2),
-              Text(
-                'Asks for the running count every $countCheckEvery hands',
-                style: TextStyle(color: Colors.white38, fontSize: 11),
-              ),
-            ],
-          ),
-        ),
-        Switch(
-          value: enabled,
-          onChanged: (v) {
-            ref.read(countCheckEnabledProvider.notifier).state = v;
-            TablePrefs.setCountCheck(v);
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _SoundToggleRow extends StatefulWidget {
-  const _SoundToggleRow();
-
-  @override
-  State<_SoundToggleRow> createState() => _SoundToggleRowState();
-}
-
-class _SoundToggleRowState extends State<_SoundToggleRow> {
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        const Expanded(
-          child: Text(
-            'Sound effects',
-            style: TextStyle(color: Colors.white70, fontSize: 14),
-          ),
-        ),
-        Switch(
-          value: SoundService.enabled,
-          onChanged: (value) async {
-            await SoundService.setEnabled(value);
-            if (mounted) setState(() {});
-          },
-        ),
-      ],
-    );
-  }
-}
-
-class _PrivacyPolicyRow extends StatelessWidget {
-  const _PrivacyPolicyRow();
-
-  static final Uri _privacyPolicyUri =
-      Uri.parse('https://thomas1581.github.io/privacy.html');
-
-  Future<void> _open(BuildContext context) async {
-    final opened = await launchUrl(
-      _privacyPolicyUri,
-      mode: LaunchMode.externalApplication,
-    );
-    if (!context.mounted || opened) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Unable to open the privacy policy.')),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Semantics(
-      button: true,
-      label: 'Open privacy policy',
-      child: InkWell(
-        onTap: () => _open(context),
-        borderRadius: BorderRadius.circular(6),
-        child: const Padding(
-          padding: EdgeInsets.symmetric(vertical: 8),
-          child: Row(
-            children: [
-              Expanded(
-                child: Text(
-                  'Privacy policy',
-                  style: TextStyle(color: Colors.white70, fontSize: 14),
-                ),
-              ),
-              Icon(
-                Icons.open_in_new,
-                color: Colors.white54,
-                size: 18,
-                semanticLabel: 'Open privacy policy',
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SettingsPanel extends ConsumerWidget {
-  final bool showCount;
-  final ShoeMode shoeMode;
-
-  const _SettingsPanel({required this.showCount, required this.shoeMode});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.wood.withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.gold.withValues(alpha: 0.2)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.tune,
-                  color: AppColors.gold.withValues(alpha: 0.7), size: 15),
-              const SizedBox(width: 8),
-              Text(
-                'TABLE SETTINGS',
-                style: TextStyle(
-                  color: AppColors.gold.withValues(alpha: 0.7),
-                  fontSize: 10,
-                  letterSpacing: 2.5,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              const Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Show Hi-Lo Count HUD',
-                      style: TextStyle(color: Colors.white70, fontSize: 14),
-                    ),
-                    SizedBox(height: 2),
-                    Text(
-                      'Turn off to keep the count yourself, like in a casino',
-                      style: TextStyle(color: Colors.white38, fontSize: 11),
-                    ),
-                  ],
-                ),
-              ),
-              Switch(
-                value: showCount,
-                onChanged: (v) {
-                  ref.read(showCountProvider.notifier).state = v;
-                  TablePrefs.setShowCount(v);
-                },
-              ),
-            ],
-          ),
-          if (!showCount) ...[
-            const SizedBox(height: 6),
-            const _CountCheckToggleRow(),
-          ],
-          const SizedBox(height: 6),
-          const _SoundToggleRow(),
-          const SizedBox(height: 6),
-          const _HintsToggleRow(),
-          const SizedBox(height: 6),
-          const _IndexPlaysToggleRow(),
-          const SizedBox(height: 6),
-          const _BetCoachRow(),
-          const SizedBox(height: 2),
-          const _PrivacyPolicyRow(),
-          const SizedBox(height: 10),
-          const _RulePickerRow(),
-          const SizedBox(height: 6),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: Text(
-                    'Shoe',
-                    style: TextStyle(color: Colors.white70, fontSize: 14),
-                  ),
-                ),
-              ),
-              _ShoeSelector(current: shoeMode),
-            ],
-          ),
-          const SizedBox(height: 10),
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.center,
-            children: [
-              const Expanded(
-                child: Padding(
-                  padding: EdgeInsets.only(right: 8),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Hands per round',
-                        style: TextStyle(color: Colors.white70, fontSize: 14),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Play up to 3 hands at once',
-                        style: TextStyle(color: Colors.white38, fontSize: 11),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              const _HandsSelector(),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Segmented 1 / 2 / 3 selector for how many hands the player deals each round.
-class _HandsSelector extends ConsumerWidget {
-  const _HandsSelector();
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final current = ref.watch(spotCountProvider);
-
-    Widget btn(int count) {
-      final selected = count == current;
-      return GestureDetector(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          ref.read(spotCountProvider.notifier).state = count;
-          TablePrefs.setSpots(count);
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.only(left: 6),
-          width: 38,
-          padding: const EdgeInsets.symmetric(vertical: 6),
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: selected ? AppColors.gold : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: selected
-                  ? AppColors.gold
-                  : AppColors.gold.withValues(alpha: 0.25),
-            ),
-          ),
-          child: Text(
-            '$count',
-            style: TextStyle(
-              color: selected ? AppColors.wood : Colors.white54,
-              fontSize: 13,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [btn(1), btn(2), btn(3)],
-    );
-  }
-}
-
-class _ShoeSelector extends ConsumerWidget {
-  final ShoeMode current;
-  const _ShoeSelector({required this.current});
-
-  @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    Widget btn(ShoeMode mode, String label) {
-      final selected = mode == current;
-      return GestureDetector(
-        onTap: () {
-          HapticFeedback.lightImpact();
-          ref.read(shoeModeProvider.notifier).state = mode;
-          TablePrefs.setShoe(mode.name);
-        },
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          margin: const EdgeInsets.only(left: 6),
-          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-          decoration: BoxDecoration(
-            color: selected ? AppColors.gold : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: selected
-                  ? AppColors.gold
-                  : AppColors.gold.withValues(alpha: 0.25),
-            ),
-          ),
-          child: Text(
-            label,
-            style: TextStyle(
-              color: selected ? AppColors.wood : Colors.white54,
-              fontSize: 12,
-              fontWeight: FontWeight.w800,
-            ),
-          ),
-        ),
-      );
-    }
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        btn(ShoeMode.continuousShuffle, 'C.S.'),
-        btn(ShoeMode.twoDeck, '2 D'),
-        btn(ShoeMode.sixDeck, '6 D'),
-        btn(ShoeMode.eightDeck, '8 D'),
-      ],
-    );
-  }
-}
-
-class _HiLoExplainer extends StatelessWidget {
-  const _HiLoExplainer();
-
-  @override
-  Widget build(BuildContext context) {
-    final term = const TextStyle(
-      color: AppColors.gold,
-      fontSize: 12,
-      fontWeight: FontWeight.w900,
-    );
-    final body = TextStyle(
-      color: Colors.white.withValues(alpha: 0.75),
-      fontSize: 12,
-      height: 1.45,
-    );
-
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: AppColors.surface.withValues(alpha: 0.85),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppColors.gold.withValues(alpha: 0.18)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Icon(Icons.lightbulb_outline,
-                  color: AppColors.gold.withValues(alpha: 0.8), size: 15),
-              const SizedBox(width: 8),
-              Text(
-                'HOW HI-LO COUNTING WORKS',
-                style: TextStyle(
-                  color: AppColors.gold.withValues(alpha: 0.8),
-                  fontSize: 10,
-                  letterSpacing: 2,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: const [
-              _ValueChip(label: '2–6', value: '+1', color: AppColors.favorable),
-              SizedBox(width: 6),
-              _ValueChip(label: '7–9', value: ' 0', color: AppColors.neutral),
-              SizedBox(width: 6),
-              _ValueChip(
-                  label: '10–A', value: '−1', color: AppColors.unfavorable),
-            ],
-          ),
-          const SizedBox(height: 14),
-          RichText(
-            text: TextSpan(children: [
-              TextSpan(text: 'RC ', style: term),
-              TextSpan(text: '(Running Count) ', style: body),
-              TextSpan(
-                text:
-                    'is the total of those values for every card you\'ve seen since the last shuffle.',
-                style: body,
-              ),
-            ]),
-          ),
-          const SizedBox(height: 8),
-          RichText(
-            text: TextSpan(children: [
-              TextSpan(text: 'TC ', style: term),
-              TextSpan(
-                  text: '(True Count) = RC ÷ decks remaining. ', style: body),
-              TextSpan(
-                text:
-                    'It normalizes the count for shoe size, so a 4-deck shoe and a 6-deck shoe are comparable.',
-                style: body,
-              ),
-            ]),
-          ),
-          const SizedBox(height: 10),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-            decoration: BoxDecoration(
-              color: AppColors.favorable.withValues(alpha: 0.1),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: AppColors.favorable.withValues(alpha: 0.4),
-              ),
-            ),
-            child: Row(
-              children: [
-                Icon(Icons.trending_up, color: AppColors.favorable, size: 16),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: Text(
-                    'TC ≥ +2 → many 10s & Aces left → favors you. Bet bigger.',
-                    style: TextStyle(
-                      color: AppColors.favorable,
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ValueChip extends StatelessWidget {
-  final String label;
-  final String value;
-  final Color color;
-
-  const _ValueChip({
-    required this.label,
-    required this.value,
-    required this.color,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 6),
-        decoration: BoxDecoration(
-          color: color.withValues(alpha: 0.12),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: color.withValues(alpha: 0.4)),
-        ),
-        child: Column(
-          children: [
-            Text(
-              label,
-              style: TextStyle(
-                color: Colors.white.withValues(alpha: 0.8),
-                fontSize: 11,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 1),
-            Text(
-              value,
-              style: TextStyle(
-                color: color,
-                fontSize: 14,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

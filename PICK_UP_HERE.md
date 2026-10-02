@@ -6,16 +6,59 @@ Short notes for resuming work on Hi-Lo Blackjack Trainer. Last updated
 
 ## Where things stand
 
-- **Version `1.4.0+13`.** The signed release bundle builds:
-  `build/app/outputs/bundle/release/app-release.aab` (50.4 MB). Not uploaded.
-- **Git:** 1.4 is committed on branch `hilo-training-1.4` and **not pushed**.
-  `main` (= GitHub) holds `055e9b3 1.3.1`, which Codex pushed with the Hi-Lo
-  leaderboards.
-- `flutter test` → **601 passing**. `flutter analyze` → 0 errors, 0 warnings
-  (95 style notes, all older than this work).
+- **Version `1.5.0+14`** (UX and presentation pass on top of 1.4). The signed
+  release bundle builds: `build/app/outputs/bundle/release/app-release.aab`.
+  Not uploaded.
+- **Git:** `main` = GitHub holds 1.4 (`0bbec28`, `807cfca`). The 1.5 work is
+  committed on branch **`ux-polish-1.5`, not pushed**.
+- `flutter test` → **653 passing**. `flutter analyze` → 0 errors, 0 warnings.
 - **Supabase is fully set up** (checked by Codex 2026-10-01): the accuracy
   league, the Hi-Lo Daily board and the weekly Survival board are live, and
   anonymous writes are refused. No SQL is waiting.
+
+## What 1.5 changes (UX and presentation only)
+
+The brief: no change to blackjack rules, strategy math, the Supabase schema,
+the online protocol, ads or rewarded flows, or routes.
+
+- **Home:** one "Hi-Lo Blackjack Trainer" lockup whose BLACKJACK wordmark
+  never wraps (it scales down instead); the player's name and avatar; and a
+  **Today's next step** card above the fold, picked by
+  `lib/features/lobby/next_step.dart` (first hand → today's Daily → the hand
+  they keep missing → their weakest chart category → the running count →
+  Survival).
+- **One identity:** the name is set once (`lib/features/profile/`) and stored
+  where online tables already read it, so tables, leaderboards and shared
+  challenges all use it. The avatar colour is a fixed hash of the name — the
+  same on every device with nothing new on the wire.
+- **Practice Setup** (`lib/features/lobby/practice_setup.dart`) replaces the
+  old settings list: table rules, shoe ("Continuous shuffle", not "C.S."),
+  hands, counting and coaching in one sheet; the home card shows the active
+  rules at a glance.
+- **After a table session** a report shows accuracy, the one mistake to fix
+  and the drill for it (`session_report.dart`); Hi-Lo results end with a
+  next-drill button too.
+- **Achievements and records** show the next unlock with a progress bar and
+  one button (`hilo_goals.dart`) instead of a grid of locks.
+- **Accents** (`AppColors`): blue = drills, violet = friends/social,
+  mint = right, red = mistakes. The table coach's correction is now red.
+- **Online:** five players fit on one screen (three seats to a row); the turn
+  badge says PLAYING on someone else's seat instead of YOUR TURN; a ten-letter
+  room code shrinks instead of overflowing on a 320 dp phone.
+- **Fixed on a real device:** tall bottom sheets ran under the status bar
+  (`useSafeArea`); the Hi-Lo question dim now covers the status bar too.
+
+**Tests:** `test/home_ux_test.dart` (next step, report, identity, goals, and
+every new screen at 320/360/390/412 dp — no clipped text, no mid-word breaks,
+no overlapping controls; the checks live in `test/support/layout_checks.dart`
+and test themselves) and `test/online_full_table_test.dart`.
+
+**Store screenshots:** seven real captures at 1080 x 1920 are in
+`store-assets/google-play/screenshots/hilo-1080x1920/` with captions in its
+README. To reshoot: boot a 1080 x 1920 emulator and run
+`python3 tool/capture_store_screenshots.py <out_dir>`
+(`integration_test/store_screenshots_test.dart` seeds a believable player and
+plays to each moment).
 
 ## What 1.4 adds
 
@@ -44,7 +87,7 @@ count.
 
 1. **Merge and push.**
    ```bash
-   git checkout main && git merge hilo-training-1.4 && git push
+   git checkout main && git merge ux-polish-1.5 && git push
    ```
 2. **Turn on the challenge link page.** Optional, but it makes shared
    challenges one tap.
@@ -60,8 +103,10 @@ count.
      message into the app instead. That always works.
 3. **Upload the AAB** in Play Console → Production.
    - *Store listing:* paste the text from
-     `store-assets/google-play/listing-text.md`. It is within Play's limits,
-     and the shot list for new screenshots is at the bottom of that file.
+     `store-assets/google-play/listing-text.md`. It is within Play's limits.
+   - *Screenshots:* replace the phone screenshots with the seven in
+     `store-assets/google-play/screenshots/hilo-1080x1920/`, in file order.
+     Keep the feature graphic.
    - *Data safety:* nothing new to declare. The reminder is a local
      notification and sends no data anywhere.
 4. **Play on a real phone.** The new pieces have only run in tests:
@@ -153,5 +198,9 @@ count.
 - **Formatting:** never run `dart format` on whole folders. It rewrites
   untouched files. (This happened twice; both times it had to be undone with
   `git checkout`.)
+- **Widget tests have no status bar and short room codes.** Two bugs only
+  showed on the emulator: bottom sheets running under the status bar, and a
+  real ten-letter room code overflowing the header at 320 dp (tests used
+  five letters). Check new screens with the screenshot run, not only tests.
 - **Strategy data:** change the reference charts or index numbers only from
   a verified source, then re-run the reference test. Never from memory.

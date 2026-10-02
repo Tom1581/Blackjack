@@ -61,7 +61,7 @@ class _BlackjackAppState extends State<BlackjackApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Blackjack — Hi-Lo',
+      title: 'Hi-Lo Blackjack Trainer',
       debugShowCheckedModeBanner: false,
       navigatorKey: appNavigatorKey,
       theme: buildAppTheme(),

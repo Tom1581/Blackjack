@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../theme/app_theme.dart';
+import '../profile/player_identity.dart';
 import 'leaderboard_providers.dart';
 import 'leaderboard_service.dart';
 import 'weekly_board_service.dart';
@@ -40,8 +41,8 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final boardAsync = ref.watch(
-        _accuracy ? weeklyAccuracyBoardProvider : weeklyBoardProvider);
+    final boardAsync = ref
+        .watch(_accuracy ? weeklyAccuracyBoardProvider : weeklyBoardProvider);
     final header = Column(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -76,8 +77,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
               ],
             ),
             error: (e, _) => Center(
-              child: Text('$e',
-                  style: const TextStyle(color: Colors.white70)),
+              child: Text('$e', style: const TextStyle(color: Colors.white70)),
             ),
             data: (board) {
               final entries = board.entries;
@@ -93,8 +93,7 @@ class _LeaderboardScreenState extends ConsumerState<LeaderboardScreen> {
                     if (_accuracy &&
                         board.me != null &&
                         board.me!.decisions > 0)
-                      _UserPinnedRow(
-                          rank: 0, entry: board.me!, accuracy: true),
+                      _UserPinnedRow(rank: 0, entry: board.me!, accuracy: true),
                   ],
                 );
               }
@@ -394,7 +393,9 @@ class _Header extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  accuracy ? 'Best decisions this week' : 'Top earners this week',
+                  accuracy
+                      ? 'Best decisions this week'
+                      : 'Top earners this week',
                   style: const TextStyle(
                     color: AppColors.neutral,
                     fontSize: 11,
@@ -506,14 +507,10 @@ class _PodiumColumn extends StatelessWidget {
       children: [
         CrownIcon(color: crownColor, size: rank == 1 ? 36 : 28),
         const SizedBox(height: 6),
-        // Avatar circle
-        Container(
-          width: rank == 1 ? 54 : 46,
-          height: rank == 1 ? 54 : 46,
+        // The player's own avatar, in its crown's glow.
+        DecoratedBox(
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: isUser ? AppColors.gold : AppColors.wood,
-            border: Border.all(color: crownColor, width: 2),
             boxShadow: [
               BoxShadow(
                 color: crownColor.withValues(alpha: 0.4),
@@ -522,14 +519,10 @@ class _PodiumColumn extends StatelessWidget {
               ),
             ],
           ),
-          alignment: Alignment.center,
-          child: Text(
-            entry.name.substring(0, 1).toUpperCase(),
-            style: TextStyle(
-              color: isUser ? AppColors.wood : Colors.white,
-              fontSize: rank == 1 ? 22 : 18,
-              fontWeight: FontWeight.w900,
-            ),
+          child: PlayerAvatar(
+            name: entry.name,
+            size: rank == 1 ? 54 : 46,
+            isMe: isUser,
           ),
         ),
         const SizedBox(height: 6),
@@ -699,34 +692,21 @@ class _RankRow extends StatelessWidget {
             ),
           ),
           const SizedBox(width: 10),
-          // Initial avatar
-          Container(
-            width: 28,
-            height: 28,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: isUser ? AppColors.gold : AppColors.surface,
-            ),
-            alignment: Alignment.center,
-            child: Text(
-              entry.name.substring(0, 1).toUpperCase(),
-              style: TextStyle(
-                color: isUser ? AppColors.wood : Colors.white,
-                fontSize: 13,
-                fontWeight: FontWeight.w900,
-              ),
-            ),
-          ),
+          PlayerAvatar(name: entry.name, size: 28, isMe: isUser),
           const SizedBox(width: 10),
           Expanded(
             child: Row(
               children: [
-                Text(
-                  entry.name,
-                  style: TextStyle(
-                    color: isUser ? AppColors.gold : Colors.white,
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700,
+                Flexible(
+                  child: Text(
+                    entry.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: isUser ? AppColors.gold : Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
                 if (isUser) ...[

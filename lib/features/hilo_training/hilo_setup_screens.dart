@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../../theme/app_theme.dart';
 import '../training/training_widgets.dart';
+import '../profile/player_identity.dart';
 import 'widgets/hilo_button.dart';
 import 'hilo_game.dart';
 import 'hilo_game_screen.dart';
@@ -170,10 +171,13 @@ class _HiLoDuelSetupScreenState extends State<HiLoDuelSetupScreen> {
   @override
   void initState() {
     super.initState();
-    HiLoTrainingProgress.loadDuelNames().then((names) {
+    HiLoTrainingProgress.loadDuelNames().then((names) async {
+      // Player 1 starts as the player's own name, if they have set one.
+      final own = await PlayerIdentity.load();
       if (!mounted) return;
+      final start = [names[0].isEmpty ? own : names[0], names[1]];
       for (var i = 0; i < 2; i++) {
-        if (_names[i].text.isEmpty) _names[i].text = names[i];
+        if (_names[i].text.isEmpty) _names[i].text = start[i];
       }
     });
   }

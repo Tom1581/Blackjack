@@ -263,6 +263,18 @@ class StrategyCoach {
     }
   }
 
+  /// Every tracked cell and how often it has been missed — for comparing
+  /// before and after a session, where the top five alone would hide a
+  /// cell that only just started being missed.
+  static Future<Map<String, int>> readMissCounts() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      return _decodeMisses(prefs.getString(_kMisses));
+    } catch (_) {
+      return {};
+    }
+  }
+
   /// Accuracy by category and the five cells missed most often.
   static Future<StrategyMastery> readMastery() async {
     try {

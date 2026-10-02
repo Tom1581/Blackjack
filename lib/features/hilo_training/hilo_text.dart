@@ -81,7 +81,7 @@ String slipAdvice(HiLoAnswer result) {
       return 'One card behind: the ${card.rank.hiLoName} that just landed is '
           '${signedCount(hiLoTag(card))}. Add each card as it lands.';
     case HiLoSlip.flippedSign:
-      return 'Right size, wrong sign. Low cards (2–6) are +1; tens and '
+      return 'Right size, wrong sign. Low cards (2 to 6) are +1; tens and '
           'aces are −1.';
     case HiLoSlip.drift:
       final off = (result.given! - q.answer).abs();
@@ -151,7 +151,7 @@ String coachingTip(
       'Your count was one card behind. Add each card as it lands, not a '
           'whole hand at a time.',
     HiLoSlip.flippedSign =>
-      'The size was right but the sign was not: low cards (2–6) are +1, '
+      'The size was right but the sign was not: low cards (2 to 6) are +1, '
           'tens and aces −1.',
     HiLoSlip.timeUp => 'The clock beat you. Keep the count running as the '
         'cards land so the answer is already there when the dealer asks.',
@@ -174,16 +174,19 @@ String answerGrid(List<HiLoAnswer> answers, {int limit = 20}) {
 
 /// The message a player sends a friend: the result, the grid, and a code
 /// that deals the friend the same shoe.
-String shareText(HiLoGame game) {
+///
+/// [playerName] leads the message, so the friend knows who it is from.
+String shareText(HiLoGame game, {String playerName = ''}) {
   final p = game.players.first;
   final spec = game.spec;
-  final header = switch (spec.mode) {
+  final title = switch (spec.mode) {
     HiLoMode.daily =>
       'Hi-Lo Daily #${spec.dailyNumber} — ${points(p.score)} pts',
     HiLoMode.survival =>
       'Hi-Lo Survival — ${points(p.score)} pts, level ${game.level}',
     _ => 'Hi-Lo Training — ${points(p.score)} pts',
   };
+  final header = _from(playerName, title);
   final code = game.toChallenge().encode();
   final tcAsked = p.answers.where((a) => a.trueCountAsked).length;
   final tcRight = p.answers.where((a) => a.trueCountCorrect == true).length;
@@ -196,16 +199,22 @@ String shareText(HiLoGame game) {
 }
 
 /// Today's official Daily score, shared from the hub after the game is gone.
-String dailyShareText(int day, int score) {
+String dailyShareText(int day, int score, {String playerName = ''}) {
   final code = HiLoChallenge(
     seed: HiLoDaily.seedFor(day),
     config: HiLoDaily.configFor(day),
     survival: false,
     score: score,
   ).encode();
-  return 'Hi-Lo Daily #$day — ${points(score)} pts\n'
+  return '${_from(playerName, 'Hi-Lo Daily #$day — ${points(score)} pts')}\n'
       '${_howToPlay(code)}\n'
       '$hiLoBlackjackPlayStoreUrl';
+}
+
+/// "Alex · Hi-Lo Daily #4 — 2,450 pts", or just the title with no name.
+String _from(String playerName, String title) {
+  final name = playerName.trim();
+  return name.isEmpty ? title : '$name · $title';
 }
 
 /// "5h 12m" / "12m".
@@ -222,4 +231,44 @@ String _howToPlay(String code) {
   return 'Same shoe, your turn — challenge code $code\n'
       '${link != null ? 'Tap to play: $link\n' : ''}'
       '(Hi-Lo Training → Enter a friend\'s code → Paste)';
+}
+
+/// The drill that fixes what a game got wrong most.
+enum HiLoNextDrill {
+  speedCount('Speed Count', 'Keep the count moving card by card.'),
+  tagDrill('Daily Count Drill', 'Make every tag automatic.'),
+  trueCount('True Count drill', 'Practise the division.'),
+  relaxedPractice(
+      'Relaxed practice', 'Slow down and leave the face-down card out.'),
+  survival('Survival', 'Push the pace until it breaks.');
+
+  const HiLoNextDrill(this.label, this.why);
+  final String label;
+  final String why;
+}
+
+/// What to drill after a game, from its most common mistake.
+HiLoNextDrill nextDrillFor(List<HiLoAnswer> answers, {bool survival = false}) {
+  if (answers.isEmpty) return HiLoNextDrill.speedCount;
+  final wrong = answers.where((a) => !a.correct).toList();
+  final asked = answers.where((a) => a.trueCountAsked).toList();
+  final tcMissed = asked.where((a) => a.trueCountCorrect != true).length;
+  if (asked.isNotEmpty &&
+      tcMissed * 2 > asked.length &&
+      wrong.length * 2 <= answers.length) {
+    return HiLoNextDrill.trueCount;
+  }
+  if (wrong.isEmpty) {
+    return survival ? HiLoNextDrill.speedCount : HiLoNextDrill.survival;
+  }
+  final tally = <HiLoSlip, int>{};
+  for (final a in wrong) {
+    tally[a.slip] = (tally[a.slip] ?? 0) + 1;
+  }
+  final top = tally.entries.reduce((a, b) => b.value > a.value ? b : a).key;
+  return switch (top) {
+    HiLoSlip.countedHoleCard => HiLoNextDrill.relaxedPractice,
+    HiLoSlip.flippedSign => HiLoNextDrill.tagDrill,
+    _ => HiLoNextDrill.speedCount,
+  };
 }
